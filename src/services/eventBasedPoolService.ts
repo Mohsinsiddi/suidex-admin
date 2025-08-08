@@ -11,7 +11,7 @@ import {
 } from '../utils/poolUtils'
 
 interface PoolCreatedEvent {
-  poolType: string
+  poolType: string | { name: string }
   allocationPoints: string | number
   depositFee: string | number
   withdrawalFee: string | number
@@ -143,16 +143,20 @@ export class EventBasedPoolService {
   }
 
   // Process pool type data to create consistent display objects
-  static processPoolType(poolType: string, isLpToken: boolean, isNativePair: boolean) {
+  static processPoolType(poolType: string | { name: string }, isLpToken: boolean, isNativePair: boolean) {
     let typeString = ""
     
-    // Convert pool type to string format
+    // Extract the actual type string from poolType
     if (typeof poolType === 'string') {
       typeString = poolType
+    } else if (poolType && typeof poolType === 'object' && poolType.name) {
+      typeString = poolType.name
     } else {
       console.warn('Unexpected poolType format:', poolType)
       typeString = String(poolType)
     }
+    
+    console.log('Processing pool type string:', typeString)
     
     // Handle LP tokens
     if (isLpToken) {
@@ -222,6 +226,8 @@ export class EventBasedPoolService {
 
             pools.push(pool)
             console.log(`Added pool from event: ${pool.name}`, pool)
+          } else {
+            console.log(`Skipping duplicate pool: ${poolKey}`)
           }
         } catch (error) {
           console.error(`Error processing event ${index}:`, error)
@@ -438,26 +444,19 @@ export class EventBasedPoolService {
     try {
       console.log('Starting event-based pool fetching...')
       
-      // Fetch farm data and events in parallel
-      const [farmData, pools] = await Promise.all([
-        this.fetchFarmData(),
-        this.fetchPoolCreatedEvents().then(events => 
-          this.convertEventsToPools(events, { totalAllocationPoints: '1' } as FarmData)
-        )
-      ])
-
-      // Now enhance the pools with the correct farm data
-      const enhancedPools = pools.map(pool => ({
-        ...pool,
-        apy: calculateAPY(pool.allocationPoints, farmData.totalAllocationPoints)
-      }))
+      // Fetch farm data first
+      const farmData = await this.fetchFarmData()
+      
+      // Fetch events and convert to pools
+      const events = await this.fetchPoolCreatedEvents()
+      const pools = this.convertEventsToPools(events, farmData)
 
       console.log('Event-based pool fetching completed:', {
         farmData,
-        pools: enhancedPools
+        pools
       })
 
-      return { pools: enhancedPools, farmData }
+      return { pools, farmData }
     } catch (error) {
       console.error('Error in getAllPools:', error)
       throw error
