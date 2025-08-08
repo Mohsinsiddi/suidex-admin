@@ -15,7 +15,9 @@ import {
   SingleIcon, 
   WarningIcon, 
   LoadingSpinner,
-  EditIcon 
+  EditIcon,
+  RefreshIcon,
+  CheckIcon
 } from './icons'
 
 export default function PoolManagement() {
@@ -28,6 +30,8 @@ export default function PoolManagement() {
   const [selectedPool, setSelectedPool] = useState<Pool | null>(null)
   const [showEditModal, setShowEditModal] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [updatedPools, setUpdatedPools] = useState<Set<string>>(new Set())
   const [createForm, setCreateForm] = useState<CreatePoolForm>({
     poolType: 'LP',
     token0: '',
@@ -46,12 +50,22 @@ export default function PoolManagement() {
     }
   }, [connected])
 
+  // Clear success message after 5 seconds
+  useEffect(() => {
+    if (successMessage) {
+      const timer = setTimeout(() => {
+        setSuccessMessage(null)
+      }, 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [successMessage])
+
   const fetchAllPoolData = async () => {
     try {
       setLoading(true)
       setError(null)
       
-      console.log('Fetching all pool data using event-based approach...')
+      console.log('Fetching all pool data using enhanced event-based approach...')
       
       const { pools: fetchedPools, farmData: fetchedFarmData } = await EventBasedPoolService.getAllPools()
       
@@ -72,7 +86,9 @@ export default function PoolManagement() {
   const refreshPoolData = async () => {
     try {
       setLoadingPools(true)
+      setError(null)
       await fetchAllPoolData()
+      setSuccessMessage('Pool data refreshed successfully!')
     } catch (error) {
       console.error('Error refreshing pool data:', error)
       setError(`Failed to refresh pool data: ${error}`)
@@ -94,6 +110,16 @@ export default function PoolManagement() {
         )
       )
       
+      // Mark pool as updated
+      setUpdatedPools(prev => new Set([...prev, poolTypeName]))
+      setTimeout(() => {
+        setUpdatedPools(prev => {
+          const newSet = new Set(prev)
+          newSet.delete(poolTypeName)
+          return newSet
+        })
+      }, 3000)
+      
       console.log('Successfully refreshed pool:', poolTypeName, enhancedData)
     } catch (error) {
       console.error('Error refreshing single pool:', error)
@@ -114,42 +140,58 @@ export default function PoolManagement() {
       })
 
       console.log('Pool created:', result)
-      alert(`${createForm.poolType} pool created successfully!`)
+      setSuccessMessage(`${createForm.poolType} pool created successfully! TX: ${result.digest}`)
       setShowCreateModal(false)
       
       // Refresh pool data after creation
       setTimeout(() => {
         fetchAllPoolData()
-      }, 2000) // Wait 2 seconds for the event to be indexed
+      }, 3000) // Wait 3 seconds for the event to be indexed
 
     } catch (error) {
       console.error('Error creating pool:', error)
-      alert('Error creating pool: ' + error)
+      setError('Error creating pool: ' + error)
     }
   }
 
   const handleUpdatePool = async (pool: Pool) => {
-    if (!connected || !account) return
+    // This is handled by the EditPoolModal now
+    console.log('Update initiated for pool:', pool.name)
+  }
 
-    try {
-      // Implementation for updating pool
-      console.log('Updating pool:', pool)
-      alert('Pool update functionality - to be implemented')
-    } catch (error) {
-      console.error('Error updating pool:', error)
-    }
+  const handlePoolUpdated = (updatedPool: Pool) => {
+    // Update the pool in the local state
+    setPools(currentPools => 
+      currentPools.map(pool => 
+        pool.typeName === updatedPool.typeName ? updatedPool : pool
+      )
+    )
+    
+    // Mark pool as recently updated
+    setUpdatedPools(prev => new Set([...prev, updatedPool.typeName]))
+    setTimeout(() => {
+      setUpdatedPools(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(updatedPool.typeName)
+        return newSet
+      })
+    }, 5000)
+    
+    setSuccessMessage(`Pool "${updatedPool.name}" updated successfully!`)
+    setShowEditModal(false)
+    setSelectedPool(null)
   }
 
   const togglePoolStatus = async (pool: Pool) => {
     if (!connected || !account) return
 
     try {
-      // Implementation for toggling pool active status
+      // This would use the edit functionality in real implementation
       const updatedPools = pools.map(p => 
         p.id === pool.id ? { ...p, isActive: !p.isActive } : p
       )
       setPools(updatedPools)
-      alert(`Pool ${pool.isActive ? 'deactivated' : 'activated'}`)
+      setSuccessMessage(`Pool ${pool.isActive ? 'deactivated' : 'activated'}`)
     } catch (error) {
       console.error('Error toggling pool status:', error)
     }
@@ -197,6 +239,16 @@ export default function PoolManagement() {
 
   return (
     <div className="space-y-6">
+      {/* Success Message */}
+      {successMessage && (
+        <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-4">
+          <div className="flex items-center space-x-2">
+            <CheckIcon className="w-5 h-5 text-green-400" />
+            <span className="text-green-300">{successMessage}</span>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
@@ -214,16 +266,26 @@ export default function PoolManagement() {
                 {farmData.paused ? 'Paused' : 'Active'}
               </span>
               <span className="mx-2">•</span>
-              <span className="text-blue-400">Event-Based Data</span>
+              <span className="text-blue-400">Enhanced Event-Based Data</span>
             </div>
           )}
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white font-semibold px-6 py-3 rounded-xl transition-all duration-200 transform hover:scale-105 shadow-lg"
-        >
-          + Create Pool
-        </button>
+        <div className="flex space-x-3">
+          <button
+            onClick={refreshPoolData}
+            disabled={loadingPools}
+            className="bg-slate-700 hover:bg-slate-600 text-white font-semibold px-4 py-2 rounded-lg transition-all duration-200 flex items-center space-x-2 disabled:opacity-50"
+          >
+            <RefreshIcon className={`w-4 h-4 ${loadingPools ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white font-semibold px-6 py-3 rounded-xl transition-all duration-200 transform hover:scale-105 shadow-lg"
+          >
+            + Create Pool
+          </button>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -286,13 +348,14 @@ export default function PoolManagement() {
       {/* Pools Table */}
       <div className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/30 rounded-xl overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-700/30 flex justify-between items-center">
-          <h3 className="text-lg font-semibold text-white">Pools (Event-Based Data)</h3>
+          <h3 className="text-lg font-semibold text-white">Pools (Enhanced Event-Based Data)</h3>
           <button
             onClick={refreshPoolData}
-            className="text-purple-400 hover:text-purple-300 text-sm"
+            className="text-purple-400 hover:text-purple-300 text-sm flex items-center space-x-1"
             disabled={loadingPools}
           >
-            {loadingPools ? 'Refreshing...' : 'Refresh Events'}
+            <RefreshIcon className={`w-4 h-4 ${loadingPools ? 'animate-spin' : ''}`} />
+            <span>{loadingPools ? 'Refreshing...' : 'Refresh All'}</span>
           </button>
         </div>
         
@@ -317,7 +380,7 @@ export default function PoolManagement() {
                   <th className="text-left p-4 text-slate-300 font-medium">Type</th>
                   <th className="text-left p-4 text-slate-300 font-medium">Total Staked</th>
                   <th className="text-left p-4 text-slate-300 font-medium">Allocation</th>
-                 <th className="text-left p-4 text-slate-300 font-medium">Fees</th>
+                  <th className="text-left p-4 text-slate-300 font-medium">Fees</th>
                   <th className="text-left p-4 text-slate-300 font-medium">APY</th>
                   <th className="text-left p-4 text-slate-300 font-medium">Status</th>
                   <th className="text-left p-4 text-slate-300 font-medium">Actions</th>
@@ -325,11 +388,21 @@ export default function PoolManagement() {
               </thead>
               <tbody>
                 {pools.map((pool) => (
-                  <tr key={pool.id} className="border-t border-slate-700/30 hover:bg-slate-700/20">
+                  <tr 
+                    key={pool.id} 
+                    className={`border-t border-slate-700/30 hover:bg-slate-700/20 transition-colors ${
+                      updatedPools.has(pool.typeName) ? 'bg-green-500/10' : ''
+                    }`}
+                  >
                     <td className="p-4">
                       <div className="flex items-center space-x-3">
-                        <div className="w-8 h-8 bg-gradient-to-r from-purple-500 to-blue-500 rounded-full flex items-center justify-center text-white font-bold text-sm">
+                        <div className="w-8 h-8 bg-gradient-to-r from-purple-500 to-blue-500 rounded-full flex items-center justify-center text-white font-bold text-sm relative">
                           {pool.type === 'LP' ? 'LP' : 'S'}
+                          {updatedPools.has(pool.typeName) && (
+                            <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-400 rounded-full flex items-center justify-center">
+                              <CheckIcon className="w-2 h-2 text-green-900" />
+                            </div>
+                          )}
                         </div>
                         <div>
                           <div className="text-white font-medium">{pool.name}</div>
@@ -409,9 +482,7 @@ export default function PoolManagement() {
                           title="Refresh Pool Data"
                           disabled={loadingPools}
                         >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                          </svg>
+                          <RefreshIcon className={`w-4 h-4 ${loadingPools ? 'animate-spin' : ''}`} />
                         </button>
                       </div>
                     </td>
@@ -423,7 +494,7 @@ export default function PoolManagement() {
         )}
       </div>
 
-      {/* Pool Creation Events Info */}
+      {/* Enhanced Pool Information */}
       {pools.length > 0 && (
         <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
           <div className="flex items-start space-x-2">
@@ -431,11 +502,11 @@ export default function PoolManagement() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <div className="text-sm text-blue-300">
-              <div className="font-medium">Event-Based Pool Data</div>
+              <div className="font-medium">Enhanced Event-Based Pool Data</div>
               <div className="text-blue-400/80 mt-1">
-                Pool information is fetched from <code>PoolCreated</code> events emitted by the smart contract.
-                This ensures accurate fee data and allocation points. Real-time pool state (like total staked) 
-                is fetched on-demand.
+                Pool information is fetched from both <code>PoolCreated</code> and <code>PoolConfigUpdated</code> events.
+                The system automatically tracks all pool parameter changes and provides real-time verification of updates.
+                Pools marked with a green checkmark have been recently updated and verified on-chain.
               </div>
             </div>
           </div>
@@ -457,7 +528,11 @@ export default function PoolManagement() {
         <EditPoolModal
           pool={selectedPool}
           onSubmit={handleUpdatePool}
-          onClose={() => setShowEditModal(false)}
+          onClose={() => {
+            setShowEditModal(false)
+            setSelectedPool(null)
+          }}
+          onPoolUpdated={handlePoolUpdated}
         />
       )}
 

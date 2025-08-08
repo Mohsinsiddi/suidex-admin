@@ -137,6 +137,12 @@ export const getPoolTypeColor = (type: 'LP' | 'Single'): string => {
     : 'bg-purple-500/20 text-purple-400'
 }
 
+// Extract the full type string from pool
+export const getPoolTypeString = (pool: Pool): string => {
+  // Return the original type name which contains the full type information
+  return pool.typeName
+}
+
 // Contract interaction helpers
 export const buildCreatePoolTransaction = (
   poolType: 'LP' | 'Single',
@@ -176,6 +182,14 @@ export const buildCreatePoolTransaction = (
 }
 
 export const buildUpdatePoolTransaction = (pool: Pool, newParams: any) => {
+  // For updates, we need to use the original type string from the pool
+  const typeArgument = getPoolTypeString(pool)
+  
+  console.log('Building update transaction for pool:', pool.name)
+  console.log('Pool type:', pool.type)
+  console.log('Type argument:', typeArgument)
+  console.log('New parameters:', newParams)
+
   return {
     target: `${CONSTANTS.PACKAGE_ID}::${CONSTANTS.MODULES.FARM}::update_pool_config`,
     arguments: [
@@ -188,7 +202,7 @@ export const buildUpdatePoolTransaction = (pool: Pool, newParams: any) => {
       CONSTANTS.GLOBAL_EMISSION_CONTROLLER_ID,
       CONSTANTS.CLOCK_ID
     ],
-    typeArguments: [pool.type === 'LP' ? [pool.token0, pool.token1] : [pool.singleToken]]
+    typeArguments: [typeArgument] // Use the full type string as single type argument
   }
 }
 
@@ -215,4 +229,76 @@ export const extractTypeNameFromDynamicField = (dynamicField: any): string => {
     console.error('Error extracting type name from dynamic field:', error)
     return ''
   }
+}
+
+// Enhanced pool update verification helpers
+export const comparePoolStates = (original: Pool, updated: Pool): boolean => {
+  return (
+    original.allocationPoints === updated.allocationPoints &&
+    original.depositFee === updated.depositFee &&
+    original.withdrawalFee === updated.withdrawalFee &&
+    original.isActive === updated.isActive
+  )
+}
+
+export const getPoolUpdateDifferences = (original: Pool, updated: Pool) => {
+  const differences: string[] = []
+  
+  if (original.allocationPoints !== updated.allocationPoints) {
+    differences.push(`Allocation Points: ${original.allocationPoints} → ${updated.allocationPoints}`)
+  }
+  
+  if (original.depositFee !== updated.depositFee) {
+    differences.push(`Deposit Fee: ${original.depositFee}BP → ${updated.depositFee}BP`)
+  }
+  
+  if (original.withdrawalFee !== updated.withdrawalFee) {
+    differences.push(`Withdrawal Fee: ${original.withdrawalFee}BP → ${updated.withdrawalFee}BP`)
+  }
+  
+  if (original.isActive !== updated.isActive) {
+    differences.push(`Status: ${original.isActive ? 'Active' : 'Inactive'} → ${updated.isActive ? 'Active' : 'Inactive'}`)
+  }
+  
+  return differences
+}
+
+// Validate update parameters
+export const validateUpdateParams = (params: any): { isValid: boolean; errors: string[] } => {
+  const errors: string[] = []
+  
+  if (!params.allocationPoints || params.allocationPoints <= 0) {
+    errors.push('Allocation points must be greater than 0')
+  }
+  
+  if (params.depositFee < 0 || params.depositFee > 1000) {
+    errors.push('Deposit fee must be between 0-1000 basis points (0-10%)')
+  }
+  
+  if (params.withdrawalFee < 0 || params.withdrawalFee > 1000) {
+    errors.push('Withdrawal fee must be between 0-1000 basis points (0-10%)')
+  }
+  
+  if (typeof params.isActive !== 'boolean') {
+    errors.push('Active status must be a boolean value')
+  }
+  
+  return {
+    isValid: errors.length === 0,
+    errors
+  }
+}
+
+// Transaction status helpers
+export const getTransactionExplorerUrl = (txDigest: string): string => {
+  // Adjust this URL based on your network (mainnet/testnet/devnet)
+  return `https://suiexplorer.com/txblock/${txDigest}?network=testnet`
+}
+
+export const formatUpdateSuccessMessage = (poolName: string, differences: string[]): string => {
+  if (differences.length === 0) {
+    return `Pool "${poolName}" updated successfully!`
+  }
+  
+  return `Pool "${poolName}" updated successfully with ${differences.length} change${differences.length > 1 ? 's' : ''}:\n${differences.join('\n')}`
 }
