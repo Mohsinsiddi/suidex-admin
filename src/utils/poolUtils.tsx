@@ -1,5 +1,6 @@
 // utils/poolUtils.ts
 import type { Pool, CreatePoolForm, FarmData } from '../types/pool'
+import { Transaction } from '@mysten/sui/transactions'
 import { CONSTANTS } from '../constants'
 
 // Parse type name to extract token information
@@ -150,35 +151,39 @@ export const buildCreatePoolTransaction = (
 ) => {
   const { token0, token1, singleToken, allocationPoints, depositFee, withdrawalFee, isNativePair } = params
 
+  const tx = new Transaction()
+
   if (poolType === 'LP') {
-    return {
+    tx.moveCall({
       target: `${CONSTANTS.PACKAGE_ID}::${CONSTANTS.MODULES.FARM}::create_lp_pool`,
       arguments: [
-        CONSTANTS.FARM_ID,
-        allocationPoints.toString(),
-        depositFee.toString(),
-        withdrawalFee.toString(),
-        isNativePair,
-        CONSTANTS.ADMIN_CAP_ID,
-        CONSTANTS.CLOCK_ID
+        tx.object(CONSTANTS.FARM_ID),
+        tx.pure.u256(allocationPoints),
+        tx.pure.u256(depositFee),
+        tx.pure.u256(withdrawalFee),
+        tx.pure.bool(isNativePair),
+        tx.object(CONSTANTS.ADMIN_CAP_ID),
+        tx.object(CONSTANTS.CLOCK_ID)
       ],
-      typeArguments: [token0, token1]
-    }
+      typeArguments: [token0!, token1!]
+    })
   } else {
-    return {
+    tx.moveCall({
       target: `${CONSTANTS.PACKAGE_ID}::${CONSTANTS.MODULES.FARM}::create_single_asset_pool`,
       arguments: [
-        CONSTANTS.FARM_ID,
-        allocationPoints.toString(),
-        depositFee.toString(),
-        withdrawalFee.toString(),
-        isNativePair,
-        CONSTANTS.ADMIN_CAP_ID,
-        CONSTANTS.CLOCK_ID
+        tx.object(CONSTANTS.FARM_ID),
+        tx.pure.u256(allocationPoints),
+        tx.pure.u256(depositFee),
+        tx.pure.u256(withdrawalFee),
+        tx.pure.bool(isNativePair),
+        tx.object(CONSTANTS.ADMIN_CAP_ID),
+        tx.object(CONSTANTS.CLOCK_ID)
       ],
-      typeArguments: [singleToken]
-    }
+      typeArguments: [singleToken!]
+    })
   }
+
+  return tx
 }
 
 export const buildUpdatePoolTransaction = (pool: Pool, newParams: any) => {
@@ -190,20 +195,24 @@ export const buildUpdatePoolTransaction = (pool: Pool, newParams: any) => {
   console.log('Type argument:', typeArgument)
   console.log('New parameters:', newParams)
 
-  return {
+  const tx = new Transaction()
+
+  tx.moveCall({
     target: `${CONSTANTS.PACKAGE_ID}::${CONSTANTS.MODULES.FARM}::update_pool_config`,
     arguments: [
-      CONSTANTS.FARM_ID,
-      newParams.allocationPoints.toString(),
-      newParams.depositFee.toString(),
-      newParams.withdrawalFee.toString(),
-      newParams.isActive,
-      CONSTANTS.ADMIN_CAP_ID,
-      CONSTANTS.GLOBAL_EMISSION_CONTROLLER_ID,
-      CONSTANTS.CLOCK_ID
+      tx.object(CONSTANTS.FARM_ID),
+      tx.pure.u256(newParams.allocationPoints),
+      tx.pure.u256(newParams.depositFee),
+      tx.pure.u256(newParams.withdrawalFee),
+      tx.pure.bool(newParams.isActive),
+      tx.object(CONSTANTS.ADMIN_CAP_ID),
+      tx.object(CONSTANTS.GLOBAL_EMISSION_CONTROLLER_ID),
+      tx.object(CONSTANTS.CLOCK_ID)
     ],
     typeArguments: [typeArgument] // Use the full type string as single type argument
-  }
+  })
+
+  return tx
 }
 
 // Helper function to extract type name from dynamic field response
@@ -290,9 +299,10 @@ export const validateUpdateParams = (params: any): { isValid: boolean; errors: s
 }
 
 // Transaction status helpers
-export const getTransactionExplorerUrl = (txDigest: string): string => {
+export const getTransactionExplorerUrl = (txDigest: string, network: string = 'testnet'): string => {
   // Adjust this URL based on your network (mainnet/testnet/devnet)
-  return `https://suiexplorer.com/txblock/${txDigest}?network=testnet`
+  const baseUrl = network === 'mainnet' ? 'https://suiexplorer.com' : `https://suiexplorer.com`
+  return `${baseUrl}/txblock/${txDigest}?network=${network}`
 }
 
 export const formatUpdateSuccessMessage = (poolName: string, differences: string[]): string => {
@@ -301,4 +311,94 @@ export const formatUpdateSuccessMessage = (poolName: string, differences: string
   }
   
   return `Pool "${poolName}" updated successfully with ${differences.length} change${differences.length > 1 ? 's' : ''}:\n${differences.join('\n')}`
+}
+
+// Gas estimation helpers
+export const getEstimatedGasCost = (): string => {
+  // Rough estimate for pool operations
+  return '~0.01 SUI'
+}
+
+// Pool management utilities
+export const sortPoolsByAllocation = (pools: Pool[]): Pool[] => {
+  return [...pools].sort((a, b) => b.allocationPoints - a.allocationPoints)
+}
+
+export const filterActivePoolsOnly = (pools: Pool[]): Pool[] => {
+  return pools.filter(pool => pool.isActive)
+}
+
+export const groupPoolsByType = (pools: Pool[]): { lpPools: Pool[]; singlePools: Pool[] } => {
+  return {
+    lpPools: pools.filter(pool => pool.type === 'LP'),
+    singlePools: pools.filter(pool => pool.type === 'Single')
+  }
+}
+
+// Pool analytics helpers
+export const calculateTotalStakedValue = (pools: Pool[]): string => {
+  // This would need real token prices for accurate calculation
+  // For now, just count total staked amounts
+  const totalStaked = pools.reduce((sum, pool) => {
+    const staked = parseFloat(pool.totalStaked) || 0
+    return sum + staked
+  }, 0)
+  
+  return formatTokenAmount(totalStaked.toString())
+}
+
+export const getPoolAllocationPercentage = (pool: Pool, totalAllocation: number): string => {
+  if (totalAllocation === 0) return '0%'
+  return ((pool.allocationPoints / totalAllocation) * 100).toFixed(2) + '%'
+}
+
+// Type guard functions
+export const isLPPool = (pool: Pool): boolean => {
+  return pool.type === 'LP'
+}
+
+export const isSinglePool = (pool: Pool): boolean => {
+  return pool.type === 'Single'
+}
+
+// Pool search and filtering
+export const searchPools = (pools: Pool[], searchTerm: string): Pool[] => {
+  const term = searchTerm.toLowerCase()
+  return pools.filter(pool => 
+    pool.name.toLowerCase().includes(term) ||
+    pool.typeName.toLowerCase().includes(term) ||
+    (pool.token0 && pool.token0.toLowerCase().includes(term)) ||
+    (pool.token1 && pool.token1.toLowerCase().includes(term)) ||
+    (pool.singleToken && pool.singleToken.toLowerCase().includes(term))
+  )
+}
+
+// Error handling helpers
+export const getPoolOperationErrorMessage = (error: any): string => {
+  if (typeof error === 'string') return error
+  
+  if (error?.message) {
+    if (error.message.includes('Insufficient')) {
+      return 'Insufficient funds for transaction fees'
+    }
+    if (error.message.includes('rejected')) {
+      return 'Transaction was rejected by user'
+    }
+    if (error.message.includes('ERROR_NOT_ADMIN')) {
+      return 'Only admin can perform this operation'
+    }
+    if (error.message.includes('ERROR_POOL_EXISTS')) {
+      return 'Pool already exists for this token type'
+    }
+    if (error.message.includes('ERROR_INVALID_FEE')) {
+      return 'Invalid fee amount (must be 0-1000 basis points)'
+    }
+    if (error.message.includes('ERROR_POOL_NOT_FOUND')) {
+      return 'Pool not found'
+    }
+    
+    return error.message
+  }
+  
+  return 'An unknown error occurred'
 }

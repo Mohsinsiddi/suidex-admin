@@ -132,11 +132,18 @@ export default function PoolManagement() {
     if (!connected || !account) return
 
     try {
-      const moveCallParams = buildCreatePoolTransaction(createForm.poolType, createForm)
+      const tx = buildCreatePoolTransaction(createForm.poolType, createForm)
 
       // Execute the transaction
       const result = await signAndExecuteTransaction({
-        transaction: moveCallParams
+        transaction: tx,
+        options: {
+          showInput: true,
+          showEffects: true,
+          showEvents: true,
+          showObjectChanges: true,
+          showBalanceChanges: true,
+        }
       })
 
       console.log('Pool created:', result)

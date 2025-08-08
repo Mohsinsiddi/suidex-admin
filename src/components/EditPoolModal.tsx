@@ -232,13 +232,20 @@ export function EditPoolModal({ pool, onSubmit, onClose, onPoolUpdated }: EditPo
 
     try {
       // Build the update transaction
-      const txParams = buildUpdatePoolTransaction(pool, editForm)
+      const tx = buildUpdatePoolTransaction(pool, editForm)
       
-      console.log('Updating pool with params:', txParams)
+      console.log('Updating pool with transaction:', tx)
       
       // Execute the transaction
       const result = await signAndExecuteTransaction({
-        transaction: txParams
+        transaction: tx,
+        options: {
+          showInput: true,
+          showEffects: true,
+          showEvents: true,
+          showObjectChanges: true,
+          showBalanceChanges: true,
+        }
       })
 
       console.log('Pool update transaction result:', result)
