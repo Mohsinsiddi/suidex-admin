@@ -2,6 +2,17 @@ import React, { useState, useEffect } from 'react'
 import { useWallet } from '@suiet/wallet-kit'
 import { suiClient } from '../utils/suiClient'
 import { CONSTANTS } from '../constants'
+import { 
+  PoolsIcon, 
+  TvlIcon, 
+  LpIcon, 
+  SingleIcon, 
+  WarningIcon, 
+  CloseIcon, 
+  EditIcon, 
+  LoadingSpinner,
+  AlertTriangleIcon 
+} from '../components/icons'
 
 interface Pool {
   id: string
@@ -200,9 +211,7 @@ export default function PoolManagement() {
     return (
       <div className="text-center py-12">
         <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-          <svg className="w-8 h-8 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 15.5c-.77.833.192 2.5 1.732 2.5z" />
-          </svg>
+          <WarningIcon className="w-8 h-8 text-red-400" />
         </div>
         <h3 className="text-xl font-semibold text-white mb-2">Wallet Not Connected</h3>
         <p className="text-slate-400">Please connect your wallet to manage pools</p>
@@ -266,7 +275,7 @@ export default function PoolManagement() {
         
         {loading ? (
           <div className="p-8 text-center">
-            <div className="animate-spin w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+            <LoadingSpinner className="w-8 h-8 mx-auto mb-4" />
             <p className="text-slate-400">Loading pools...</p>
           </div>
         ) : pools.length === 0 ? (
@@ -344,9 +353,7 @@ export default function PoolManagement() {
                           className="text-blue-400 hover:text-blue-300 p-1"
                           title="Edit Pool"
                         >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                          </svg>
+                          <EditIcon />
                         </button>
                       </div>
                     </td>
@@ -429,9 +436,7 @@ function CreatePoolModal({ form, setForm, onSubmit, onClose }: CreatePoolModalPr
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-white">Create New Pool</h3>
             <button onClick={onClose} className="text-slate-400 hover:text-white">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              <CloseIcon />
             </button>
           </div>
         </div>
@@ -599,9 +604,7 @@ function EditPoolModal({ pool, onSubmit, onClose }: EditPoolModalProps) {
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-white">Edit Pool: {pool.name}</h3>
             <button onClick={onClose} className="text-slate-400 hover:text-white">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              <CloseIcon />
             </button>
           </div>
         </div>
@@ -674,9 +677,7 @@ function EditPoolModal({ pool, onSubmit, onClose }: EditPoolModalProps) {
           {/* Warning */}
           <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3">
             <div className="flex items-start space-x-2">
-              <svg className="w-4 h-4 text-yellow-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 15.5c-.77.833.192 2.5 1.732 2.5z" />
-              </svg>
+              <AlertTriangleIcon className="w-4 h-4 text-yellow-400 mt-0.5" />
               <div className="text-sm text-yellow-300">
                 <div className="font-medium">Warning</div>
                 <div className="text-yellow-400/80">Changing pool parameters will affect all stakers. Make sure to communicate changes to users.</div>
@@ -701,39 +702,6 @@ function EditPoolModal({ pool, onSubmit, onClose }: EditPoolModalProps) {
         </div>
       </div>
     </div>
-  )
-}
-
-// Icon Components
-function PoolsIcon() {
-  return (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-    </svg>
-  )
-}
-
-function TvlIcon() {
-  return (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
-    </svg>
-  )
-}
-
-function LpIcon() {
-  return (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-    </svg>
-  )
-}
-
-function SingleIcon() {
-  return (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-    </svg>
   )
 }
 
