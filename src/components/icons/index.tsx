@@ -161,8 +161,7 @@ export function LoadingSpinner({ className = "w-8 h-8", size }: IconProps) {
   )
 }
 
-// Add these icons to your icons/index.tsx file
-
+// Missing Icons - Added below
 export const XIcon = ({ className = "w-5 h-5" }: { className?: string }) => (
   <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -174,6 +173,72 @@ export const RefreshIcon = ({ className = "w-5 h-5" }: { className?: string }) =
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
   </svg>
 )
+
+// NEW MISSING ICONS
+export function CalendarIcon({ className = "w-5 h-5", size }: IconProps) {
+  return (
+    <svg className={className} width={size} height={size} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+    </svg>
+  )
+}
+
+export function FilterIcon({ className = "w-5 h-5", size }: IconProps) {
+  return (
+    <svg className={className} width={size} height={size} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+    </svg>
+  )
+}
+
+export function ExternalLinkIcon({ className = "w-5 h-5", size }: IconProps) {
+  return (
+    <svg className={className} width={size} height={size} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+    </svg>
+  )
+}
+
+export function PlusIcon({ className = "w-5 h-5", size }: IconProps) {
+  return (
+    <svg className={className} width={size} height={size} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+    </svg>
+  )
+}
+
+export function EyeIcon({ className = "w-5 h-5", size }: IconProps) {
+  return (
+    <svg className={className} width={size} height={size} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+    </svg>
+  )
+}
+
+export function ClockIcon({ className = "w-5 h-5", size }: IconProps) {
+  return (
+    <svg className={className} width={size} height={size} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  )
+}
+
+export function ActivityIcon({ className = "w-5 h-5", size }: IconProps) {
+  return (
+    <svg className={className} width={size} height={size} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+    </svg>
+  )
+}
+
+export function MonitorIcon({ className = "w-5 h-5", size }: IconProps) {
+  return (
+    <svg className={className} width={size} height={size} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+    </svg>
+  )
+}
 
 // Export all icons as a single object for easier importing
 export const Icons = {
@@ -196,6 +261,14 @@ export const Icons = {
   Warning: WarningIcon,
   AlertTriangle: AlertTriangleIcon,
   LoadingSpinner: LoadingSpinner,
-  XIcon:XIcon,
-  RefreshIcon: RefreshIcon
+  XIcon: XIcon,
+  RefreshIcon: RefreshIcon,
+  Calendar: CalendarIcon,
+  Filter: FilterIcon,
+  ExternalLink: ExternalLinkIcon,
+  Plus: PlusIcon,
+  Eye: EyeIcon,
+  Clock: ClockIcon,
+  Activity: ActivityIcon,
+  Monitor: MonitorIcon
 } as const
