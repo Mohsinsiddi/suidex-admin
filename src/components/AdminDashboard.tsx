@@ -2,7 +2,7 @@
 import React, { useState } from 'react'
 import { useWallet } from '@suiet/wallet-kit'
 import PoolManagement from './PoolManagement'
-import PoolMonitoringTab from './PoolMonitoringTab'
+import CommonMonitoringTab from './CommonMonitoringTab' // Updated import
 import { 
   OverviewIcon, 
   PoolIcon, 
@@ -65,7 +65,7 @@ export default function AdminDashboard() {
                 label="Monitoring"
                 active={activeTab === 'monitoring'}
                 onClick={() => setActiveTab('monitoring')}
-                badge="New"
+                badge=""
               />
               <NavItem
                 icon={<TokenIcon />}
@@ -105,7 +105,7 @@ export default function AdminDashboard() {
         <div className="flex-1 p-8">
           {activeTab === 'overview' && <OverviewTab />}
           {activeTab === 'pools' && <PoolManagement />}
-          {activeTab === 'monitoring' && <PoolMonitoringTab />}
+          {activeTab === 'monitoring' && <CommonMonitoringTab />}
           {activeTab === 'tokens' && <TokenControlTab />}
           {activeTab === 'emissions' && <EmissionsTab />}
           {activeTab === 'factory' && <FactoryTab />}
@@ -151,7 +151,7 @@ function NavItem({ icon, label, active, onClick, badge }: NavItemProps) {
   )
 }
 
-// Tab Components
+// Tab Components (rest of the components remain the same)
 function OverviewTab() {
   return (
     <div className="space-y-6">
