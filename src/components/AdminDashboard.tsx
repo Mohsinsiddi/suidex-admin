@@ -2,7 +2,7 @@
 import React, { useState } from 'react'
 import { useWallet } from '@suiet/wallet-kit'
 import PoolManagement from './PoolManagement'
-import PoolMonitoringTab from './PoolMonitoringtab'
+import PoolMonitoringTab from './PoolMonitoringTab'
 import { 
   OverviewIcon, 
   PoolIcon, 
