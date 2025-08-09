@@ -389,71 +389,124 @@ export class FarmEventService {
   // Fetch Admin events
   static async fetchAdminEvents(limit: number = 50, dateRange: string = 'all'): Promise<FarmEvent[]> {
     try {
-      const [pauseEvents, addressEvents, vaultEvents, sweepEvents, initEvents] = await Promise.all([
-        // FarmPauseStateChanged
-        suiClient.queryEvents({
-          query: { MoveEventType: `${CONSTANTS.PACKAGE_ID}::farm::FarmPauseStateChanged` },
-          limit: Math.min(limit, 50),
-          order: 'descending'
-        }),
-        // AdminAddressesUpdated
-        suiClient.queryEvents({
-          query: { MoveEventType: `${CONSTANTS.PACKAGE_ID}::farm::AdminAddressesUpdated` },
-          limit: Math.min(limit, 50),
-          order: 'descending'
-        }),
-        // VaultDeposit
-        suiClient.queryEvents({
-          query: { MoveEventType: `${CONSTANTS.PACKAGE_ID}::farm::VaultDeposit` },
-          limit: Math.min(limit, 50),
-          order: 'descending'
-        }),
-        // AdminVaultSweep
-        suiClient.queryEvents({
-          query: { MoveEventType: `${CONSTANTS.PACKAGE_ID}::farm::AdminVaultSweep` },
-          limit: Math.min(limit, 50),
-          order: 'descending'
-        }),
-        // FarmInitialized
-        suiClient.queryEvents({
-          query: { MoveEventType: `${CONSTANTS.PACKAGE_ID}::farm::FarmInitialized` },
-          limit: Math.min(limit, 50),
-          order: 'descending'
+      console.log('🔍 Fetching admin events...')
+      
+      const eventQueries = [
+        { name: 'FarmPauseStateChanged', query: { MoveEventType: `${CONSTANTS.PACKAGE_ID}::farm::FarmPauseStateChanged` } },
+        { name: 'AdminAddressesUpdated', query: { MoveEventType: `${CONSTANTS.PACKAGE_ID}::farm::AdminAddressesUpdated` } },
+        { name: 'VaultDeposit', query: { MoveEventType: `${CONSTANTS.PACKAGE_ID}::farm::VaultDeposit` } },
+        { name: 'AdminVaultSweep', query: { MoveEventType: `${CONSTANTS.PACKAGE_ID}::farm::AdminVaultSweep` } },
+        { name: 'FarmInitialized', query: { MoveEventType: `${CONSTANTS.PACKAGE_ID}::farm::FarmInitialized` } }
+      ]
+
+      const eventResults = await Promise.allSettled(
+        eventQueries.map(async ({ name, query }) => {
+          try {
+            console.log(`🔍 Fetching ${name} events...`)
+            const result = await suiClient.queryEvents({
+              query,
+              limit: Math.min(limit, 50),
+              order: 'descending'
+            })
+            console.log(`✅ ${name}: Found ${result?.data?.length || 0} events`)
+            return { name, data: result?.data || [] }
+          } catch (error) {
+            console.error(`❌ Error fetching ${name} events:`, error)
+            return { name, data: [] }
+          }
         })
-      ])
+      )
+
+      const [pauseEvents, addressEvents, vaultEvents, sweepEvents, initEvents] = eventResults.map(result => 
+        result.status === 'fulfilled' ? result.value.data : []
+      )
 
       const allEvents: FarmEvent[] = []
 
-      // Process all admin events
+      // Process all admin events with better error handling
       const eventProcessors = [
-        { data: pauseEvents?.data, type: 'FarmPauseStateChanged', name: 'Farm Pause State Changed' },
-        { data: addressEvents?.data, type: 'AdminAddressesUpdated', name: 'Admin Addresses Updated' },
-        { data: vaultEvents?.data, type: 'VaultDeposit', name: 'Vault Deposit' },
-        { data: sweepEvents?.data, type: 'AdminVaultSweep', name: 'Admin Vault Sweep' },
-        { data: initEvents?.data, type: 'FarmInitialized', name: 'Farm Initialized' }
+        { data: pauseEvents, type: 'FarmPauseStateChanged', name: 'Farm Pause State Changed' },
+        { data: addressEvents, type: 'AdminAddressesUpdated', name: 'Admin Addresses Updated' },
+        { data: vaultEvents, type: 'VaultDeposit', name: 'Vault Deposit' },
+        { data: sweepEvents, type: 'AdminVaultSweep', name: 'Admin Vault Sweep' },
+        { data: initEvents, type: 'FarmInitialized', name: 'Farm Initialized' }
       ]
 
       eventProcessors.forEach(({ data, type, name }) => {
-        if (data) {
+        if (data && Array.isArray(data)) {
+          console.log(`🔄 Processing ${data.length} ${type} events`)
           data.forEach((event, index) => {
-            const parsedEvent = event.parsedJson as any
+            try {
+              const parsedEvent = event.parsedJson as any
+              console.log(`📝 Processing ${type} event:`, parsedEvent)
 
-            allEvents.push({
-              id: `${type.toLowerCase()}-${event.id.txDigest}-${index}`,
-              type: type as any,
-              eventName: name,
-              data: parsedEvent,
-              timestamp: event.timestampMs || '0',
-              txDigest: event.id.txDigest || '',
-              sender: parsedEvent.admin || 'admin'
-            })
+              // Handle different admin event types with specific data extraction
+              let eventData = parsedEvent
+              let amount = undefined
+              let user = undefined
+
+              if (type === 'VaultDeposit') {
+                amount = parsedEvent.amount || '0'
+                eventData = {
+                  amount: parsedEvent.amount || '0',
+                  totalBalance: parsedEvent.total_balance || parsedEvent.totalBalance || '0',
+                  timestamp: parsedEvent.timestamp || 0
+                }
+              } else if (type === 'AdminVaultSweep') {
+                amount = parsedEvent.amount || '0'
+                user = parsedEvent.recipient || ''
+                eventData = {
+                  amount: parsedEvent.amount || '0',
+                  recipient: parsedEvent.recipient || '',
+                  remainingVaultBalance: parsedEvent.remaining_vault_balance || parsedEvent.remainingVaultBalance || '0',
+                  timestamp: parsedEvent.timestamp || 0
+                }
+              } else if (type === 'AdminAddressesUpdated') {
+                eventData = {
+                  oldBurnAddress: parsedEvent.old_burn_address || parsedEvent.oldBurnAddress || '',
+                  newBurnAddress: parsedEvent.new_burn_address || parsedEvent.newBurnAddress || '',
+                  oldLockerAddress: parsedEvent.old_locker_address || parsedEvent.oldLockerAddress || '',
+                  newLockerAddress: parsedEvent.new_locker_address || parsedEvent.newLockerAddress || '',
+                  oldTeamAddress: parsedEvent.old_team_address || parsedEvent.oldTeamAddress || '',
+                  newTeamAddress: parsedEvent.new_team_address || parsedEvent.newTeamAddress || '',
+                  oldDevAddress: parsedEvent.old_dev_address || parsedEvent.oldDevAddress || '',
+                  newDevAddress: parsedEvent.new_dev_address || parsedEvent.newDevAddress || '',
+                  timestamp: parsedEvent.timestamp || 0
+                }
+              } else if (type === 'FarmPauseStateChanged') {
+                eventData = {
+                  oldPaused: parsedEvent.old_paused || parsedEvent.oldPaused || false,
+                  newPaused: parsedEvent.new_paused || parsedEvent.newPaused || false,
+                  admin: parsedEvent.admin || '',
+                  timestamp: parsedEvent.timestamp || 0
+                }
+                user = parsedEvent.admin || ''
+              }
+
+              allEvents.push({
+                id: `${type.toLowerCase()}-${event.id.txDigest}-${index}`,
+                type: type as any,
+                eventName: name,
+                user,
+                amount,
+                data: eventData,
+                timestamp: event.timestampMs || '0',
+                txDigest: event.id.txDigest || '',
+                sender: parsedEvent.admin || user || 'admin'
+              })
+            } catch (error) {
+              console.error(`❌ Error processing ${type} event:`, error, event)
+            }
           })
+        } else {
+          console.warn(`⚠️ No data for ${type} events`)
         }
       })
 
+      console.log(`✅ Processed ${allEvents.length} total admin events`)
       return allEvents
     } catch (error) {
-      console.error('Error fetching admin events:', error)
+      console.error('❌ Error fetching admin events:', error)
       return []
     }
   }
