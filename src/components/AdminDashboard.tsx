@@ -1,8 +1,8 @@
 // components/AdminDashboard.tsx
 import React, { useState } from 'react'
-import { useWallet } from '@suiet/wallet-kit'
+import { AdminHeader } from './AdminHeader'
 import PoolManagement from './PoolManagement'
-import CommonMonitoringTab from './CommonMonitoringTab' // Updated import
+import CommonMonitoringTab from './CommonMonitoringTab'
 import { 
   OverviewIcon, 
   PoolIcon, 
@@ -11,36 +11,23 @@ import {
   FactoryIcon, 
   LockerIcon, 
   AnalyticsIcon,
-  MonitorIcon // Add this new icon
+  MonitorIcon
 } from './icons'
 
 type ActiveTab = 'overview' | 'pools' | 'monitoring' | 'tokens' | 'emissions' | 'factory' | 'locker' | 'analytics'
 
 export default function AdminDashboard() {
-  const { connected, account } = useWallet()
   const [activeTab, setActiveTab] = useState<ActiveTab>('overview')
 
-  if (!connected) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
-            <svg className="w-10 h-10 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 15.5c-.77.833.192 2.5 1.732 2.5z" />
-            </svg>
-          </div>
-          <h2 className="text-2xl font-bold text-white mb-4">Access Denied</h2>
-          <p className="text-slate-400 mb-6">Please connect your wallet to access the admin dashboard</p>
-        </div>
-      </div>
-    )
-  }
-
+  // Remove the wallet connection check - auth is handled by AuthContext
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+      {/* Header */}
+      <AdminHeader />
+      
       <div className="flex">
         {/* Sidebar */}
-        <div className="w-64 bg-slate-800/30 backdrop-blur-xl border-r border-slate-700/30 min-h-screen">
+        <div className="w-64 bg-slate-800/30 backdrop-blur-xl border-r border-slate-700/30 min-h-[calc(100vh-80px)]">
           <div className="p-6">
             <div className="flex items-center space-x-3 mb-8">
               <div className="w-8 h-8 bg-gradient-to-r from-purple-500 to-blue-500 rounded-lg"></div>
@@ -151,7 +138,7 @@ function NavItem({ icon, label, active, onClick, badge }: NavItemProps) {
   )
 }
 
-// Tab Components (rest of the components remain the same)
+// Tab Components
 function OverviewTab() {
   return (
     <div className="space-y-6">
