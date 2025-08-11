@@ -4,6 +4,7 @@ import PoolMonitoringTab from './PoolMonitoringTab'
 import DexMonitoringTab from './DexMonitoringTab'
 import FarmMonitoringTab from './FarmMonitoringTab'
 import TokenLockerMonitoringTab from './TokenLockerMonitoringTab'
+import VaultMonitoringTab from './VaultMonitoringTab'
 import GlobalEmissionMonitoringTab from './GlobalEmissionMonitoringTab'
 import { 
   MonitorIcon,
@@ -26,6 +27,13 @@ export const TokenLockerIcon = ({ className = "w-4 h-4" }) => (
   </svg>
 )
 
+// Vault icon
+export const VaultIcon = ({ className = "w-4 h-4" }) => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+  </svg>
+)
+
 // Global Emission icon
 export const GlobalEmissionIcon = ({ className = "w-4 h-4" }) => (
   <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -33,7 +41,7 @@ export const GlobalEmissionIcon = ({ className = "w-4 h-4" }) => (
   </svg>
 )
 
-type MonitoringTabType = 'pool' | 'dex' | 'farm' | 'locker' | 'emission'
+type MonitoringTabType = 'pool' | 'dex' | 'farm' | 'locker' | 'vault' | 'emission'
 
 interface MonitoringTabConfig {
   id: MonitoringTabType
@@ -75,9 +83,17 @@ const MONITORING_TABS: MonitoringTabConfig[] = [
     label: 'Token Locker',
     icon: <TokenLockerIcon />,
     component: TokenLockerMonitoringTab,
-    badge: 'New',
     description: 'Token locking, rewards, and revenue events',
     color: 'indigo'
+  },
+  {
+    id: 'vault',
+    label: 'Vault Events',
+    icon: <VaultIcon />,
+    component: VaultMonitoringTab,
+    badge: 'New',
+    description: 'Vault creation, deposits, and management',
+    color: 'emerald'
   },
   {
     id: 'emission',
@@ -101,6 +117,7 @@ export default function CommonMonitoringTab() {
       green: isActive ? 'from-green-600/20 to-green-500/20 border-green-500/30 text-green-300' : 'hover:bg-green-600/10',
       purple: isActive ? 'from-purple-600/20 to-purple-500/20 border-purple-500/30 text-purple-300' : 'hover:bg-purple-600/10',
       indigo: isActive ? 'from-indigo-600/20 to-indigo-500/20 border-indigo-500/30 text-indigo-300' : 'hover:bg-indigo-600/10',
+      emerald: isActive ? 'from-emerald-600/20 to-emerald-500/20 border-emerald-500/30 text-emerald-300' : 'hover:bg-emerald-600/10',
       orange: isActive ? 'from-orange-600/20 to-orange-500/20 border-orange-500/30 text-orange-300' : 'hover:bg-orange-600/10'
     }
     return colorMap[color as keyof typeof colorMap] || colorMap.blue
@@ -113,6 +130,7 @@ export default function CommonMonitoringTab() {
       green: 'text-green-400', 
       purple: 'text-purple-400',
       indigo: 'text-indigo-400',
+      emerald: 'text-emerald-400',
       orange: 'text-orange-400'
     }
     return colorMap[color as keyof typeof colorMap] || 'text-blue-400'
@@ -137,7 +155,7 @@ export default function CommonMonitoringTab() {
       <div className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/30 rounded-xl p-6">
         <div className="flex flex-col space-y-4">
           {/* Tab Buttons */}
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
             {MONITORING_TABS.map((tab) => {
               const isActive = activeTab === tab.id
               return (
@@ -178,6 +196,13 @@ export default function CommonMonitoringTab() {
                   <h3 className="font-semibold text-white">{activeTabConfig.label}</h3>
                   <p className="text-sm opacity-90">{activeTabConfig.description}</p>
                 </div>
+                {activeTabConfig.badge && (
+                  <div className="ml-auto">
+                    <span className="text-xs bg-green-500/20 text-green-300 px-2 py-1 rounded-full border border-green-500/30">
+                      {activeTabConfig.badge}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -212,6 +237,38 @@ export default function CommonMonitoringTab() {
               Status: <span className="text-green-400">Operational</span>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Quick Stats Overview */}
+      <div className="bg-slate-800/20 backdrop-blur-xl border border-slate-700/30 rounded-xl p-4">
+        <h4 className="text-lg font-semibold text-white mb-4">Module Coverage</h4>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          {MONITORING_TABS.map((tab) => {
+            const isActive = activeTab === tab.id
+            return (
+              <div 
+                key={`stat-${tab.id}`}
+                className={`p-3 rounded-lg border transition-all duration-200 ${
+                  isActive 
+                    ? `${getTabColorClasses(tab.color, true)} border` 
+                    : 'border-slate-600/30 hover:border-slate-500/50'
+                }`}
+              >
+                <div className="flex items-center space-x-2">
+                  <div className={`w-4 h-4 ${isActive ? getIconColor(tab.color, true) : 'text-slate-400'}`}>
+                    {tab.icon}
+                  </div>
+                  <span className={`text-sm font-medium ${isActive ? 'text-white' : 'text-slate-300'}`}>
+                    {tab.label}
+                  </span>
+                </div>
+                <div className={`text-xs mt-1 ${isActive ? 'text-slate-200' : 'text-slate-400'}`}>
+                  {tab.description}
+                </div>
+              </div>
+            )
+          })}
         </div>
       </div>
     </div>
