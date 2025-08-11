@@ -77,12 +77,12 @@ export function AdminHeader() {
                 ? 'linear-gradient(to right, #059669, #047857)' 
                 : 'linear-gradient(to right, #9333ea, #2563eb)',
               color: 'white',
-              fontWeight: '600',
-              padding: '6px 12px',
+              fontWeight: '800',
+              padding: '1px 2px',
               borderRadius: '8px',
               border: 'none',
               transition: 'all 0.2s',
-              fontSize: '12px'
+              fontSize: '2px'
             }} />
           </div>
         </div>
