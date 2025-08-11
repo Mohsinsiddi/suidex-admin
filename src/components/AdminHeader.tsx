@@ -1,6 +1,5 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { ConnectButton, useWallet } from '@suiet/wallet-kit'
-import { useAuth } from '../contexts/AuthContext'
 
 // Icons
 interface IconProps {
@@ -15,38 +14,6 @@ function SearchIcon({ className = "w-4 h-4" }: IconProps) {
   )
 }
 
-function KeyIcon({ className = "w-4 h-4" }: IconProps) {
-  return (
-    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1721 9z" />
-    </svg>
-  )
-}
-
-function WalletIcon({ className = "w-4 h-4" }: IconProps) {
-  return (
-    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-    </svg>
-  )
-}
-
-function LogoutIcon({ className = "w-4 h-4" }: IconProps) {
-  return (
-    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-    </svg>
-  )
-}
-
-function ChevronDownIcon({ className = "w-4 h-4" }: IconProps) {
-  return (
-    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-    </svg>
-  )
-}
-
 function ShieldIcon({ className = "w-4 h-4" }: IconProps) {
   return (
     <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -56,14 +23,7 @@ function ShieldIcon({ className = "w-4 h-4" }: IconProps) {
 }
 
 export function AdminHeader() {
-  const { connected, account } = useWallet()
-  const { authMethod, logout } = useAuth()
-  const [showAuthDetails, setShowAuthDetails] = useState(false)
-
-  const handleLogout = () => {
-    logout()
-    // This will trigger the app to show auth modal again
-  }
+  const { connected } = useWallet()
 
   return (
     <header className="bg-slate-800/30 backdrop-blur-xl border-b border-slate-700/30 sticky top-0 z-40">
@@ -97,7 +57,7 @@ export function AdminHeader() {
             </nav>
           </div>
 
-          {/* Right side - Search, Auth Status, Wallet */}
+          {/* Right side - Search and Wallet */}
           <div className="flex items-center space-x-3">
             {/* Search */}
             <div className="hidden xl:block">
@@ -109,95 +69,6 @@ export function AdminHeader() {
                 />
                 <SearchIcon className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
               </div>
-            </div>
-
-            {/* Auth Status Dropdown - Made Bigger */}
-            <div className="relative">
-              <button
-                onClick={() => setShowAuthDetails(!showAuthDetails)}
-                className="flex items-center space-x-2 bg-slate-700/50 hover:bg-slate-700/70 px-3 py-2 rounded-lg transition-all duration-200 border border-slate-600/30"
-              >
-                <div className="flex items-center space-x-2">
-                  {authMethod === 'secret' ? (
-                    <KeyIcon className="w-4 h-4 text-green-400" />
-                  ) : (
-                    <WalletIcon className="w-4 h-4 text-blue-400" />
-                  )}
-                  
-                  {/* Status indicator */}
-                  {connected ? (
-                    <div className="w-2 h-2 bg-green-400 rounded-full"></div>
-                  ) : authMethod === 'secret' ? (
-                    <div className="w-2 h-2 bg-yellow-400 rounded-full"></div>
-                  ) : (
-                    <div className="w-2 h-2 bg-red-400 rounded-full"></div>
-                  )}
-                  
-                  {/* Auth method text */}
-                  <span className="text-white text-sm hidden sm:block">
-                    {authMethod === 'secret' ? 'Secret' : 'Wallet'}
-                  </span>
-                </div>
-                <ChevronDownIcon className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${showAuthDetails ? 'rotate-180' : ''}`} />
-              </button>
-
-              {/* Dropdown with High Z-Index */}
-              {showAuthDetails && (
-                <div className="absolute right-0 top-full mt-1 w-64 bg-slate-900/98 backdrop-blur-xl border border-slate-700/50 rounded-lg shadow-2xl z-[9999]">
-                  {/* Header */}
-                  <div className="p-3 border-b border-slate-700/30">
-                    <h3 className="text-white font-medium text-sm">Authentication Status</h3>
-                  </div>
-                  
-                  <div className="p-3 space-y-3">
-                    {/* Auth Method */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        {authMethod === 'secret' ? (
-                          <KeyIcon className="w-4 h-4 text-green-400" />
-                        ) : (
-                          <WalletIcon className="w-4 h-4 text-blue-400" />
-                        )}
-                        <span className="text-slate-300 text-sm">
-                          {authMethod === 'secret' ? 'Secret Key Auth' : 'Admin Wallet Auth'}
-                        </span>
-                      </div>
-                      <span className="text-green-400 text-sm">✓</span>
-                    </div>
-
-                    {/* Wallet Status */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <WalletIcon className="w-4 h-4 text-slate-400" />
-                        <span className="text-slate-300 text-sm">Wallet Connection</span>
-                      </div>
-                      <span className={`text-sm ${connected ? 'text-green-400' : 'text-yellow-400'}`}>
-                        {connected ? '✓ Connected' : '⚠ Disconnected'}
-                      </span>
-                    </div>
-
-                    {/* Warning for secret key auth without wallet */}
-                    {authMethod === 'secret' && !connected && (
-                      <div className="bg-yellow-500/10 border border-yellow-500/20 rounded p-2">
-                        <div className="text-yellow-400 text-xs">
-                          Connect wallet to perform transactions
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Logout Button */}
-                  <div className="p-3 border-t border-slate-700/30">
-                    <button
-                      onClick={handleLogout}
-                      className="w-full flex items-center justify-center space-x-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 hover:text-red-300 px-3 py-2 rounded transition-colors duration-200 text-sm"
-                    >
-                      <LogoutIcon className="w-4 h-4" />
-                      <span>Logout</span>
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Compact Wallet Connect Button */}
@@ -216,14 +87,6 @@ export function AdminHeader() {
           </div>
         </div>
       </div>
-
-      {/* Click outside to close dropdown */}
-      {showAuthDetails && (
-        <div 
-          className="fixed inset-0 z-[9998]" 
-          onClick={() => setShowAuthDetails(false)}
-        />
-      )}
     </header>
   )
 }
