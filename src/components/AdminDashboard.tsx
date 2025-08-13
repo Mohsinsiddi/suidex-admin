@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { AdminHeader } from './AdminHeader'
 import PoolManagement from './PoolManagement'
 import CommonMonitoringTab from './CommonMonitoringTab'
+import VictoryTokenControl from './VictoryTokenControl'
 import { 
   OverviewIcon, 
   PoolIcon, 
@@ -251,7 +252,7 @@ export default function AdminDashboard() {
           {activeTab === 'overview' && <OverviewTab />}
           {activeTab === 'pools' && <PoolManagement />}
           {activeTab === 'monitoring' && <CommonMonitoringTab />}
-          {activeTab === 'tokens' && <TokenControlTab />}
+          {activeTab === 'tokens' && <VictoryTokenControl />}
           {activeTab === 'emissions' && <EmissionsTab />}
           {activeTab === 'factory' && <FactoryTab />}
           {activeTab === 'locker' && <LockerTab />}
@@ -385,82 +386,6 @@ function OverviewTab() {
               </div>
             </div>
             <div className="text-slate-500 text-sm">1d ago</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function TokenControlTab() {
-  return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-white mb-4">Token Control</h2>
-      
-      {/* Victory Token Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/30 rounded-xl p-6">
-          <div className="text-slate-400 text-sm">Total Supply</div>
-          <div className="text-2xl font-bold text-white mt-1">100M VICTORY</div>
-          <div className="text-blue-400 text-sm mt-1">Fixed supply</div>
-        </div>
-        <div className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/30 rounded-xl p-6">
-          <div className="text-slate-400 text-sm">Circulating</div>
-          <div className="text-2xl font-bold text-white mt-1">25.4M</div>
-          <div className="text-green-400 text-sm mt-1">25.4% of supply</div>
-        </div>
-        <div className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/30 rounded-xl p-6">
-          <div className="text-slate-400 text-sm">In Vault</div>
-          <div className="text-2xl font-bold text-white mt-1">74.6M</div>
-          <div className="text-purple-400 text-sm mt-1">Ready for rewards</div>
-        </div>
-      </div>
-
-      {/* Token Actions */}
-      <div className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/30 rounded-xl p-6">
-        <h3 className="text-lg font-semibold text-white mb-4">Token Actions</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <button className="bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-3 rounded-lg transition-all duration-200 flex items-center justify-center space-x-2">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-            </svg>
-            <span>Deposit to Vault</span>
-          </button>
-          <button className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-3 rounded-lg transition-all duration-200 flex items-center justify-center space-x-2">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3a2 2 0 012-2h4a2 2 0 012 2v4m-6 0V19a2 2 0 002 2h4a2 2 0 002-2V7m-6 0h6" />
-            </svg>
-            <span>Sweep Vault</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Token Distribution */}
-      <div className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/30 rounded-xl p-6">
-        <h3 className="text-lg font-semibold text-white mb-4">Token Distribution</h3>
-        <div className="space-y-3">
-          <div className="flex justify-between items-center">
-            <span className="text-slate-300">LP Rewards</span>
-            <span className="text-white">60%</span>
-          </div>
-          <div className="w-full bg-slate-700 rounded-full h-2">
-            <div className="bg-blue-500 h-2 rounded-full" style={{ width: '60%' }}></div>
-          </div>
-          
-          <div className="flex justify-between items-center">
-            <span className="text-slate-300">Single Asset Rewards</span>
-            <span className="text-white">25%</span>
-          </div>
-          <div className="w-full bg-slate-700 rounded-full h-2">
-            <div className="bg-purple-500 h-2 rounded-full" style={{ width: '25%' }}></div>
-          </div>
-          
-          <div className="flex justify-between items-center">
-            <span className="text-slate-300">Reserved</span>
-            <span className="text-white">15%</span>
-          </div>
-          <div className="w-full bg-slate-700 rounded-full h-2">
-            <div className="bg-yellow-500 h-2 rounded-full" style={{ width: '15%' }}></div>
           </div>
         </div>
       </div>
