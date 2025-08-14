@@ -391,6 +391,8 @@ function PhaseCard({ phase, isActive }: {
 function OverviewTab({ data }: { data: EmissionOverview }) {
   const { status, rates, metrics } = data
 
+  console.log('Rendering OverviewTab with data:', data)
+
   return (
     <div className="space-y-6">
       {/* Key Metrics Grid */}
@@ -408,16 +410,17 @@ function OverviewTab({ data }: { data: EmissionOverview }) {
           color="text-green-400"
         />
         <MetricCard
-          title="Emitted So Far"
-          value={formatLargeNumber(metrics.totalEmittedSoFar)}
-          subtitle="VICTORY tokens"
-          color="text-blue-400"
+        title="Emitted So Far"
+        value={data.metrics.formattedEmitted || '0.00'}  // ✅ Uses "1.27M"
+        subtitle="VICTORY tokens"
+        color="text-blue-400"
         />
+
         <MetricCard
-          title="Remaining"
-          value={formatLargeNumber(metrics.remainingEmissions)}
-          subtitle="VICTORY tokens"
-          color="text-yellow-400"
+        title="Remaining"
+        value={data.metrics.formattedRemaining || '0.00'}  // ✅ Uses "274.99M"
+        subtitle="VICTORY tokens"
+        color="text-yellow-400"
         />
       </div>
 

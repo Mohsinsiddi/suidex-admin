@@ -18,6 +18,17 @@ import {
   calculateRemainingEmissions,
   EMISSION_PHASES
 } from '../utils/emissionUtils'
+import {
+  calculateTokenomicsSnapshot,
+  formatVictoryTokens,
+  formatLargeVictoryNumber,
+  formatEmissionRate,
+  validateTokenomicsData,
+  calculateTotalScheduleEmissions,
+  calculateWeekEmissionRate,
+  calculateWeekTotalEmission,
+  type TokenomicsSnapshot
+} from '../utils/tokenomicsCalculator'
 
 export interface EmissionConfig {
   emissionStartTimestamp: number
@@ -36,6 +47,11 @@ export interface EmissionMetrics {
   totalEmittedSoFar: number
   remainingEmissions: number
   currentWeekRate: string
+  // Enhanced metrics using tokenomics
+  tokenomicsSnapshot?: TokenomicsSnapshot
+  formattedEmitted?: string
+  formattedRemaining?: string
+  emissionProgress?: number
 }
 
 export interface CurrentEmissionRates {
@@ -86,6 +102,9 @@ export interface EmissionOverview {
     contractWeek: number
     dataSource: string
     errors: string[]
+    tokenomicsValid?: boolean
+    emissionProgress?: number
+    totalScheduleTokens?: string
   }
 }
 
@@ -104,23 +123,15 @@ export interface EmissionStatus {
 
 export class EmissionService {
   
-  // 🔥 NEW: Fetch actual emission start timestamp from events
+  // Fetch actual emission start timestamp from events
   static async fetchActualEmissionStartTime(): Promise<{ timestamp: number; source: string; error?: string }> {
     try {
-      console.log('🔍 EmissionService: Fetching emission start time from events...')
-      
-      // Use the working GlobalEmissionEventService to get EmissionScheduleStarted events
       const scheduleStartedEvents = await GlobalEmissionEventService.fetchEmissionScheduleStartedEvents(1, 'all')
       
       if (scheduleStartedEvents && scheduleStartedEvents.length > 0) {
-        const latestEvent = scheduleStartedEvents[0] // Most recent event
-        const startTimestamp = latestEvent.data?.startTimestamp || 0
-        
-        console.log('✅ EmissionService: Found emission start from events:', {
-          timestamp: startTimestamp,
-          date: new Date(startTimestamp * 1000).toISOString(),
-          eventId: latestEvent.id
-        })
+        const latestEvent = scheduleStartedEvents[0]
+        const startTimestampRaw = latestEvent.data?.startTimestamp || 0
+        const startTimestamp = typeof startTimestampRaw === 'string' ? parseInt(startTimestampRaw) : Number(startTimestampRaw)
         
         return {
           timestamp: startTimestamp,
@@ -128,14 +139,12 @@ export class EmissionService {
         }
       }
       
-      console.log('⚠️ EmissionService: No EmissionScheduleStarted events found')
       return {
         timestamp: 0,
         source: 'events_not_found'
       }
       
     } catch (error) {
-      console.error('❌ EmissionService: Error fetching emission start from events:', error)
       return {
         timestamp: 0,
         source: 'events_error',
@@ -144,16 +153,11 @@ export class EmissionService {
     }
   }
 
-  // Updated: Fetch emission configuration with event-based timestamp
+  // Fetch emission configuration
   static async fetchEmissionConfig(): Promise<EmissionConfig> {
-    console.log('🚀 EmissionService: Starting fetchEmissionConfig...')
-    
     try {
-      // First, try to get timestamp from events (most reliable)
       const eventResult = await this.fetchActualEmissionStartTime()
       
-      // Also try to get config from contract for paused status
-      console.log('📡 EmissionService: Calling contract get_config_info...')
       const tx = new Transaction()
       tx.moveCall({
         target: `${CONSTANTS.PACKAGE_ID}::global_emission_controller::get_config_info`,
@@ -168,27 +172,15 @@ export class EmissionService {
       let contractTimestamp = 0
       let paused = false
 
-      // Parse contract result
       const returnValues = result.results?.[0]?.returnValues
       if (returnValues && returnValues.length >= 2) {
-        // Try to properly decode the BCS bytes
         try {
-          // returnValues[0][0] should be the timestamp bytes
           const timestampBytes = returnValues[0][0]
           const pausedByte = returnValues[1][0]
           
-          console.log('📊 EmissionService: Contract raw values:', {
-            timestampBytes,
-            pausedByte,
-            timestampType: typeof timestampBytes,
-            pausedType: typeof pausedByte
-          })
-          
-          // Try different parsing approaches
           if (typeof timestampBytes === 'string') {
             contractTimestamp = parseInt(timestampBytes)
           } else if (Array.isArray(timestampBytes)) {
-            // If it's an array of bytes, try to reconstruct the number
             contractTimestamp = timestampBytes.reduce((acc, byte, index) => {
               return acc + (byte << (8 * index))
             }, 0)
@@ -199,45 +191,26 @@ export class EmissionService {
           paused = pausedByte === 1 || pausedByte === true
           
         } catch (parseError) {
-          console.error('❌ EmissionService: Error parsing contract values:', parseError)
           contractTimestamp = 0
         }
       }
 
-      // Determine the best timestamp to use
       let finalTimestamp = 0
-      let dataSource = 'unknown'
       
       if (eventResult.timestamp > 0) {
         finalTimestamp = eventResult.timestamp
-        dataSource = 'events'
-        console.log('✅ EmissionService: Using timestamp from events')
       } else if (contractTimestamp > 0) {
         finalTimestamp = contractTimestamp
-        dataSource = 'contract'
-        console.log('✅ EmissionService: Using timestamp from contract')
-      } else {
-        dataSource = 'not_initialized'
-        console.log('⚠️ EmissionService: No valid timestamp found - system not initialized')
       }
 
-      const config = {
-        emissionStartTimestamp: finalTimestamp,
+      const numericTimestamp = typeof finalTimestamp === 'string' ? parseInt(finalTimestamp) : finalTimestamp
+
+      return {
+        emissionStartTimestamp: numericTimestamp,
         paused
       }
 
-      console.log('📋 EmissionService: Final emission config:', {
-        ...config,
-        dataSource,
-        eventTimestamp: eventResult.timestamp,
-        contractTimestamp,
-        startDate: finalTimestamp > 0 ? new Date(finalTimestamp * 1000).toISOString() : 'Not set'
-      })
-
-      return config
-
     } catch (error) {
-      console.error('❌ EmissionService: Error in fetchEmissionConfig:', error)
       return {
         emissionStartTimestamp: 0,
         paused: false
@@ -248,8 +221,6 @@ export class EmissionService {
   // Fetch system status
   static async fetchSystemStatus(): Promise<SystemStatus> {
     try {
-      console.log('📡 EmissionService: Fetching system status...')
-      
       const tx = new Transaction()
       tx.moveCall({
         target: `${CONSTANTS.PACKAGE_ID}::global_emission_controller::get_system_status`,
@@ -271,20 +242,16 @@ export class EmissionService {
         const weeksRemaining = parseInt(returnValues[2][0])
         const isActive = returnValues[3][0] === 1
         
-        const status = {
+        return {
           paused,
           currentWeek,
           weeksRemaining,
           isActive
         }
-        
-        console.log('📊 EmissionService: System status from contract:', status)
-        return status
       }
 
       throw new Error('Invalid response format')
     } catch (error) {
-      console.error('❌ EmissionService: Error fetching system status:', error)
       return {
         paused: false,
         currentWeek: 0,
@@ -294,143 +261,86 @@ export class EmissionService {
     }
   }
 
-  // Fetch emission metrics
-  static async fetchEmissionMetrics(): Promise<EmissionMetrics> {
-    try {
-      console.log('📡 EmissionService: Fetching emission metrics...')
-      
-      const tx = new Transaction()
-      tx.moveCall({
-        target: `${CONSTANTS.PACKAGE_ID}::global_emission_controller::get_emission_metrics`,
-        arguments: [
-          tx.object(CONSTANTS.GLOBAL_EMISSION_CONTROLLER_ID),
-          tx.object(CONSTANTS.CLOCK_ID)
-        ]
-      })
-
-      const result = await suiClient.devInspectTransactionBlock({
-        transactionBlock: tx,
-        sender: '0x0000000000000000000000000000000000000000000000000000000000000000'
-      })
-
-      const returnValues = result.results?.[0]?.returnValues
-      if (returnValues && returnValues.length >= 4) {
-        const currentWeek = parseInt(returnValues[0][0])
-        const totalEmitted = returnValues[1][0]
-        const remainingEmissions = returnValues[2][0]
-        const currentWeekRate = returnValues[3][0]
-        
-        // Convert from mist to Victory tokens
-        const totalEmittedFormatted = parseInt(totalEmitted) / Math.pow(10, 6)
-        const remainingEmissionsFormatted = parseInt(remainingEmissions) / Math.pow(10, 6)
-        const currentWeekRateFormatted = (parseInt(currentWeekRate) / Math.pow(10, 6)).toFixed(6)
-        
-        const metrics = {
-          currentWeek,
-          totalEmittedSoFar: totalEmittedFormatted,
-          remainingEmissions: remainingEmissionsFormatted,
-          currentWeekRate: currentWeekRateFormatted
-        }
-        
-        console.log('📊 EmissionService: Emission metrics:', metrics)
-        return metrics
-      }
-
-      throw new Error('Invalid response format')
-    } catch (error) {
-      console.error('❌ EmissionService: Error fetching emission metrics:', error)
-      return {
-        currentWeek: 0,
-        totalEmittedSoFar: 0,
-        remainingEmissions: 0,
-        currentWeekRate: '0'
-      }
-    }
-  }
-
-  // Enhanced: Get comprehensive emission overview with debugging
+  // Get comprehensive emission overview with tokenomics
   static async fetchEmissionOverview(): Promise<EmissionOverview> {
-    console.log('🚀 EmissionService: Starting comprehensive emission overview fetch...')
+    console.log('🚀 EmissionService: Starting emission overview fetch...')
     
     try {
-      // Get event-based timestamp for debugging
       const eventTimestampResult = await this.fetchActualEmissionStartTime()
-      
-      // Fetch all data in parallel
-      const [config, systemStatus, metrics] = await Promise.all([
+      const [config, systemStatus] = await Promise.all([
         this.fetchEmissionConfig(),
-        this.fetchSystemStatus(),
-        this.fetchEmissionMetrics()
+        this.fetchSystemStatus()
       ])
 
-      const currentTimestamp = Math.floor(Date.now() / 1000)
-      
-      // 🔥 ENSURE TIMESTAMPS ARE NUMBERS
       const emissionStartTime = typeof config.emissionStartTimestamp === 'string' 
         ? parseInt(config.emissionStartTimestamp) 
         : config.emissionStartTimestamp
+
+      const currentTimestamp = Math.floor(Date.now() / 1000)
       
-      console.log('🔍 EmissionService: Timestamp validation:', {
-        configTimestamp: config.emissionStartTimestamp,
-        configType: typeof config.emissionStartTimestamp,
-        parsedTimestamp: emissionStartTime,
-        currentTimestamp,
-        timestampDiff: currentTimestamp - emissionStartTime
-      })
-      
-      // Calculate week using our utils (based on config timestamp)
-      const calculatedWeek = calculateCurrentWeek(emissionStartTime, currentTimestamp)
-      const contractWeek = systemStatus.currentWeek
-      
-      // Use the most reliable week number
-      const currentWeek = emissionStartTime > 0 ? calculatedWeek : contractWeek
-      const phase = getPhaseFromWeek(currentWeek)
-      
-      console.log('🔍 EmissionService: Week calculation comparison:', {
+      console.log('🏆 EmissionService: Calculating tokenomics...', {
         emissionStartTime,
         currentTimestamp,
-        calculatedWeek,
-        contractWeek,
-        finalWeek: currentWeek,
-        timeDiff: currentTimestamp - emissionStartTime
+        elapsedDays: (currentTimestamp - emissionStartTime) / 86400
       })
       
-      // Calculate detailed status with proper number types
+      // Use tokenomics calculations
+      const tokenomicsSnapshot = calculateTokenomicsSnapshot(emissionStartTime, currentTimestamp)
+      
+      console.log('📊 Tokenomics result:', {
+        currentWeek: tokenomicsSnapshot.currentWeek,
+        totalEmittedSoFar: tokenomicsSnapshot.totalEmittedSoFar,
+        formattedEmitted: formatLargeVictoryNumber(tokenomicsSnapshot.totalEmittedSoFar),
+        emissionProgress: tokenomicsSnapshot.emissionProgress.toFixed(2) + '%'
+      })
+      
+      // Create enhanced metrics using tokenomics
+      const metrics: EmissionMetrics = {
+        currentWeek: tokenomicsSnapshot.currentWeek,
+        totalEmittedSoFar: tokenomicsSnapshot.totalEmittedSoFar / Math.pow(10, 6),
+        remainingEmissions: tokenomicsSnapshot.totalRemainingEmissions / Math.pow(10, 6),
+        currentWeekRate: formatEmissionRate(tokenomicsSnapshot.currentWeekRate),
+        tokenomicsSnapshot,
+        formattedEmitted: formatLargeVictoryNumber(tokenomicsSnapshot.totalEmittedSoFar),
+        formattedRemaining: formatLargeVictoryNumber(tokenomicsSnapshot.totalRemainingEmissions),
+        emissionProgress: tokenomicsSnapshot.emissionProgress
+      }
+
       const status: EmissionStatus = {
-        currentWeek,
-        currentPhase: phase,
-        phaseName: getPhaseName(phase),
-        isActive: systemStatus.isActive,
+        currentWeek: tokenomicsSnapshot.currentWeek,
+        currentPhase: tokenomicsSnapshot.currentPhase,
+        phaseName: getPhaseName(tokenomicsSnapshot.currentPhase),
+        isActive: systemStatus.isActive && tokenomicsSnapshot.currentWeek > 0 && tokenomicsSnapshot.currentWeek <= 156,
         isPaused: systemStatus.paused,
-        emissionStartTimestamp: emissionStartTime, // ✅ Ensure this is a number
+        emissionStartTimestamp: emissionStartTime,
         currentTimestamp,
-        weekProgress: calculateWeekProgress(emissionStartTime, currentTimestamp, currentWeek),
-        remainingTimeInWeek: calculateRemainingTimeInWeek(emissionStartTime, currentTimestamp, currentWeek),
+        weekProgress: tokenomicsSnapshot.weekProgress,
+        remainingTimeInWeek: calculateRemainingTimeInWeek(emissionStartTime, currentTimestamp, tokenomicsSnapshot.currentWeek),
         totalRemainingTime: calculateTotalRemainingTime(emissionStartTime, currentTimestamp)
       }
 
-      // Get current emission rates
-      const rates = getCurrentEmissionRates(currentWeek)
+      const rates = getCurrentEmissionRates(tokenomicsSnapshot.currentWeek)
 
-      // Next phase info
       let nextPhaseInfo
-      if (currentWeek === 0) {
+      if (tokenomicsSnapshot.currentWeek === 0) {
         nextPhaseInfo = { phase: 1, name: 'Bootstrap Phase', atWeek: 1, weeksUntil: 1 }
-      } else if (currentWeek <= 4) {
-        nextPhaseInfo = { phase: 2, name: 'Post-Bootstrap Phase', atWeek: 5, weeksUntil: 5 - currentWeek }
-      } else if (currentWeek < 156) {
-        nextPhaseInfo = { phase: 3, name: 'Ended', atWeek: 157, weeksUntil: 157 - currentWeek }
+      } else if (tokenomicsSnapshot.currentWeek <= 4) {
+        nextPhaseInfo = { phase: 2, name: 'Post-Bootstrap Phase', atWeek: 5, weeksUntil: 5 - tokenomicsSnapshot.currentWeek }
+      } else if (tokenomicsSnapshot.currentWeek < 156) {
+        nextPhaseInfo = { phase: 3, name: 'Ended', atWeek: 157, weeksUntil: 157 - tokenomicsSnapshot.currentWeek }
       }
 
-      // Debug information
       const debugInfo = {
         emissionStartFromEvents: eventTimestampResult.timestamp,
         emissionStartFromContract: emissionStartTime,
         currentTimestamp,
-        calculatedWeek,
-        contractWeek,
-        dataSource: eventTimestampResult.source,
-        errors: eventTimestampResult.error ? [eventTimestampResult.error] : []
+        calculatedWeek: tokenomicsSnapshot.currentWeek,
+        contractWeek: systemStatus.currentWeek,
+        dataSource: 'tokenomics',
+        errors: eventTimestampResult.error ? [eventTimestampResult.error] : [],
+        tokenomicsValid: validateTokenomicsData(tokenomicsSnapshot).isValid,
+        emissionProgress: tokenomicsSnapshot.emissionProgress,
+        totalScheduleTokens: formatLargeVictoryNumber(tokenomicsSnapshot.totalScheduleEmissions)
       }
 
       const overview = {
@@ -442,27 +352,98 @@ export class EmissionService {
         debugInfo
       }
 
-      console.log('✅ EmissionService: Complete overview generated:', {
-        currentWeek: overview.status.currentWeek,
-        isActive: overview.status.isActive,
-        isPaused: overview.status.isPaused,
-        emissionStart: overview.status.emissionStartTimestamp,
-        weekProgress: overview.status.weekProgress,
-        remainingTimeInWeek: overview.status.remainingTimeInWeek,
-        debugInfo: overview.debugInfo
+      console.log('✅ EmissionService: Overview complete', {
+        metricsWeek: overview.metrics.currentWeek,
+        emittedSoFar: overview.metrics.formattedEmitted,
+        remaining: overview.metrics.formattedRemaining
       })
 
       return overview
 
     } catch (error) {
-      console.error('❌ EmissionService: Error fetching emission overview:', error)
+      console.error('❌ EmissionService: Error fetching overview:', error)
       throw error
     }
   }
 
-  // Rest of the methods remain unchanged...
-  // [Include all the existing methods: fetchEmissionStatusDisplay, fetchCurrentAllocationDetails, etc.]
-  
+  // Get week emission comparison
+  static getWeekEmissionComparison(tokenomicsSnapshot: TokenomicsSnapshot): {
+    currentWeek: {
+      week: number
+      ratePerSecond: string
+      totalForWeek: string
+      emittedSoFar: string
+      remainingInWeek: string
+      progress: number
+    }
+    previousWeek: {
+      week: number
+      ratePerSecond: string
+      totalForWeek: string
+      changeFromPrevious: number
+    } | null
+    nextWeek: {
+      week: number
+      ratePerSecond: string
+      totalForWeek: string
+      changeToNext: number
+    } | null
+    weekOverWeekTrend: 'increasing' | 'decreasing' | 'stable'
+  } {
+    const currentWeek = tokenomicsSnapshot.currentWeek
+    
+    const currentWeekData = {
+      week: currentWeek,
+      ratePerSecond: formatEmissionRate(tokenomicsSnapshot.currentWeekRate),
+      totalForWeek: formatLargeVictoryNumber(tokenomicsSnapshot.currentWeekTotal),
+      emittedSoFar: formatLargeVictoryNumber(tokenomicsSnapshot.currentWeekEmitted),
+      remainingInWeek: formatLargeVictoryNumber(tokenomicsSnapshot.remainingInCurrentWeek),
+      progress: tokenomicsSnapshot.weekProgress
+    }
+    
+    let previousWeekData = null
+    if (currentWeek > 1) {
+      const prevRate = calculateWeekEmissionRate(currentWeek - 1)
+      const prevTotal = calculateWeekTotalEmission(currentWeek - 1)
+      const changeFromPrevious = ((tokenomicsSnapshot.currentWeekRate - prevRate) / prevRate) * 100
+      
+      previousWeekData = {
+        week: currentWeek - 1,
+        ratePerSecond: formatEmissionRate(prevRate),
+        totalForWeek: formatLargeVictoryNumber(prevTotal),
+        changeFromPrevious
+      }
+    }
+    
+    let nextWeekData = null
+    if (currentWeek < 156) {
+      const nextRate = calculateWeekEmissionRate(currentWeek + 1)
+      const nextTotal = calculateWeekTotalEmission(currentWeek + 1)
+      const changeToNext = ((nextRate - tokenomicsSnapshot.currentWeekRate) / tokenomicsSnapshot.currentWeekRate) * 100
+      
+      nextWeekData = {
+        week: currentWeek + 1,
+        ratePerSecond: formatEmissionRate(nextRate),
+        totalForWeek: formatLargeVictoryNumber(nextTotal),
+        changeToNext
+      }
+    }
+    
+    let weekOverWeekTrend: 'increasing' | 'decreasing' | 'stable' = 'stable'
+    if (previousWeekData && previousWeekData.changeFromPrevious > 0.1) {
+      weekOverWeekTrend = 'increasing'
+    } else if (previousWeekData && previousWeekData.changeFromPrevious < -0.1) {
+      weekOverWeekTrend = 'decreasing'
+    }
+    
+    return {
+      currentWeek: currentWeekData,
+      previousWeek: previousWeekData,
+      nextWeek: nextWeekData,
+      weekOverWeekTrend
+    }
+  }
+
   // Get emission status for display
   static async fetchEmissionStatusDisplay(): Promise<{
     currentWeek: number
@@ -505,7 +486,6 @@ export class EmissionService {
       
       throw new Error('Invalid response format')
     } catch (error) {
-      console.error('Error fetching emission status display:', error)
       return {
         currentWeek: 0,
         phase: 0,
@@ -567,7 +547,6 @@ export class EmissionService {
 
       throw new Error('Invalid response format')
     } catch (error) {
-      console.error('Error fetching allocation details:', error)
       return {
         lpEmission: '0',
         singleEmission: '0',
@@ -583,10 +562,8 @@ export class EmissionService {
 
   // ADMIN TRANSACTION BUILDERS
 
-  // Initialize emission schedule
   static buildInitializeEmissionTransaction(): Transaction {
     const tx = new Transaction()
-    
     tx.moveCall({
       target: `${CONSTANTS.PACKAGE_ID}::global_emission_controller::initialize_emission_schedule`,
       arguments: [
@@ -595,14 +572,11 @@ export class EmissionService {
         tx.object(CONSTANTS.CLOCK_ID)
       ]
     })
-
     return tx
   }
 
-  // Pause system
   static buildPauseSystemTransaction(): Transaction {
     const tx = new Transaction()
-    
     tx.moveCall({
       target: `${CONSTANTS.PACKAGE_ID}::global_emission_controller::pause_system`,
       arguments: [
@@ -611,14 +585,11 @@ export class EmissionService {
         tx.object(CONSTANTS.CLOCK_ID)
       ]
     })
-
     return tx
   }
 
-  // Unpause system
   static buildUnpauseSystemTransaction(): Transaction {
     const tx = new Transaction()
-    
     tx.moveCall({
       target: `${CONSTANTS.PACKAGE_ID}::global_emission_controller::unpause_system`,
       arguments: [
@@ -627,14 +598,11 @@ export class EmissionService {
         tx.object(CONSTANTS.CLOCK_ID)
       ]
     })
-
     return tx
   }
 
-  // Reset to specific week
   static buildResetToWeekTransaction(targetWeek: number): Transaction {
     const tx = new Transaction()
-    
     tx.moveCall({
       target: `${CONSTANTS.PACKAGE_ID}::global_emission_controller::reset_to_week`,
       arguments: [
@@ -644,14 +612,11 @@ export class EmissionService {
         tx.object(CONSTANTS.CLOCK_ID)
       ]
     })
-
     return tx
   }
 
-  // Adjust emission timing
   static buildAdjustTimingTransaction(hours: number, subtract: boolean): Transaction {
     const tx = new Transaction()
-    
     tx.moveCall({
       target: `${CONSTANTS.PACKAGE_ID}::global_emission_controller::adjust_emission_timing`,
       arguments: [
@@ -662,14 +627,11 @@ export class EmissionService {
         tx.object(CONSTANTS.CLOCK_ID)
       ]
     })
-
     return tx
   }
 
-  // Legacy pause/unpause (if needed for backward compatibility)
   static buildSetPauseStateTransaction(paused: boolean): Transaction {
     const tx = new Transaction()
-    
     tx.moveCall({
       target: `${CONSTANTS.PACKAGE_ID}::global_emission_controller::set_pause_state`,
       arguments: [
@@ -679,14 +641,218 @@ export class EmissionService {
         tx.object(CONSTANTS.CLOCK_ID)
       ]
     })
-
     return tx
   }
 
-  // [Include all other existing methods unchanged - preview functions, utility functions, etc.]
-  // ... (rest of the class methods remain the same)
-  
-  // Real-time polling setup for dashboard
+  // PREVIEW FUNCTIONS
+
+  static async previewWeekAllocations(week: number): Promise<{
+    lpAllocation: string
+    singleAllocation: string
+    victoryAllocation: string
+    devAllocation: string
+    phase: number
+  }> {
+    try {
+      const tx = new Transaction()
+      tx.moveCall({
+        target: `${CONSTANTS.PACKAGE_ID}::global_emission_controller::preview_week_allocations`,
+        arguments: [tx.pure.u64(week)]
+      })
+
+      const result = await suiClient.devInspectTransactionBlock({
+        transactionBlock: tx,
+        sender: '0x0000000000000000000000000000000000000000000000000000000000000000'
+      })
+
+      const returnValues = result.results?.[0]?.returnValues
+      if (returnValues && returnValues.length >= 5) {
+        const lpAllocation = returnValues[0][0]
+        const singleAllocation = returnValues[1][0]
+        const victoryAllocation = returnValues[2][0]
+        const devAllocation = returnValues[3][0]
+        const phase = returnValues[4][0]
+        
+        return {
+          lpAllocation: (parseInt(lpAllocation) / Math.pow(10, 6)).toFixed(6),
+          singleAllocation: (parseInt(singleAllocation) / Math.pow(10, 6)).toFixed(6),
+          victoryAllocation: (parseInt(victoryAllocation) / Math.pow(10, 6)).toFixed(6),
+          devAllocation: (parseInt(devAllocation) / Math.pow(10, 6)).toFixed(6),
+          phase: parseInt(phase)
+        }
+      }
+
+      throw new Error('Invalid response format')
+    } catch (error) {
+      return {
+        lpAllocation: '0',
+        singleAllocation: '0',
+        victoryAllocation: '0',
+        devAllocation: '0',
+        phase: 0
+      }
+    }
+  }
+
+  static async calculateTotalScheduleEmissions(): Promise<string> {
+    try {
+      const tx = new Transaction()
+      tx.moveCall({
+        target: `${CONSTANTS.PACKAGE_ID}::global_emission_controller::calculate_total_schedule_emissions`,
+        arguments: []
+      })
+
+      const result = await suiClient.devInspectTransactionBlock({
+        transactionBlock: tx,
+        sender: '0x0000000000000000000000000000000000000000000000000000000000000000'
+      })
+
+      const returnValues = result.results?.[0]?.returnValues
+      if (returnValues && returnValues.length >= 1) {
+        const totalEmissions = returnValues[0][0]
+        return (parseInt(totalEmissions) / Math.pow(10, 6)).toFixed(2)
+      }
+
+      throw new Error('Invalid response format')
+    } catch (error) {
+      return '0'
+    }
+  }
+
+  static async checkEmissionsActive(): Promise<boolean> {
+    try {
+      const tx = new Transaction()
+      tx.moveCall({
+        target: `${CONSTANTS.PACKAGE_ID}::global_emission_controller::is_emissions_active`,
+        arguments: [
+          tx.object(CONSTANTS.GLOBAL_EMISSION_CONTROLLER_ID),
+          tx.object(CONSTANTS.CLOCK_ID)
+        ]
+      })
+
+      const result = await suiClient.devInspectTransactionBlock({
+        transactionBlock: tx,
+        sender: '0x0000000000000000000000000000000000000000000000000000000000000000'
+      })
+
+      const returnValues = result.results?.[0]?.returnValues
+      if (returnValues && returnValues.length >= 1) {
+        return returnValues[0][0] === 1
+      }
+
+      throw new Error('Invalid response format')
+    } catch (error) {
+      return false
+    }
+  }
+
+  static async getEmissionPhaseParameters(): Promise<{
+    bootstrapRate: string
+    postBootstrapStartRate: string
+    weeklyDecayRate: number
+    totalWeeks: number
+  }> {
+    try {
+      const tx = new Transaction()
+      tx.moveCall({
+        target: `${CONSTANTS.PACKAGE_ID}::global_emission_controller::get_emission_phase_parameters`,
+        arguments: []
+      })
+
+      const result = await suiClient.devInspectTransactionBlock({
+        transactionBlock: tx,
+        sender: '0x0000000000000000000000000000000000000000000000000000000000000000'
+      })
+
+      const returnValues = result.results?.[0]?.returnValues
+      if (returnValues && returnValues.length >= 4) {
+        const bootstrapRate = returnValues[0][0]
+        const postBootstrapRate = returnValues[1][0]
+        const decayRate = returnValues[2][0]
+        const totalWeeks = returnValues[3][0]
+        
+        return {
+          bootstrapRate: (parseInt(bootstrapRate) / Math.pow(10, 6)).toFixed(6),
+          postBootstrapStartRate: (parseInt(postBootstrapRate) / Math.pow(10, 6)).toFixed(6),
+          weeklyDecayRate: parseInt(decayRate) / 100,
+          totalWeeks: parseInt(totalWeeks)
+        }
+      }
+
+      throw new Error('Invalid response format')
+    } catch (error) {
+      return {
+        bootstrapRate: '6.6',
+        postBootstrapStartRate: '5.47',
+        weeklyDecayRate: 99,
+        totalWeeks: 156
+      }
+    }
+  }
+
+  // UTILITY FUNCTIONS
+
+  static getEmissionOperationErrorMessage(error: any): string {
+    if (typeof error === 'string') return error
+    
+    if (error?.message) {
+      if (error.message.includes('E_NOT_AUTHORIZED')) {
+        return 'Only admin can perform this operation'
+      }
+      if (error.message.includes('E_NOT_INITIALIZED')) {
+        return 'Emission schedule has not been initialized'
+      }
+      if (error.message.includes('E_ALREADY_INITIALIZED')) {
+        return 'Emission schedule has already been initialized'
+      }
+      if (error.message.includes('E_NOT_PAUSED')) {
+        return 'System must be paused to perform this operation'
+      }
+      if (error.message.includes('E_INVALID_WEEK')) {
+        return 'Invalid week number (must be 1-156)'
+      }
+      if (error.message.includes('E_INVALID_ADJUSTMENT')) {
+        return 'Invalid timing adjustment (max 168 hours)'
+      }
+      if (error.message.includes('rejected')) {
+        return 'Transaction was rejected by user'
+      }
+      
+      return error.message
+    }
+    
+    return 'An unknown error occurred'
+  }
+
+  static getTransactionExplorerUrl(txDigest: string, network: string = 'testnet'): string {
+    const baseUrl = network === 'mainnet' ? 'https://suiexplorer.com' : 'https://suiexplorer.com'
+    return `${baseUrl}/txblock/${txDigest}?network=${network}`
+  }
+
+  static validateAdminOperation(operation: string, value?: any): { isValid: boolean; error?: string } {
+    switch (operation) {
+      case 'resetToWeek':
+        if (!value || typeof value !== 'number') {
+          return { isValid: false, error: 'Week number is required' }
+        }
+        if (value < 1 || value > 156) {
+          return { isValid: false, error: 'Week must be between 1 and 156' }
+        }
+        break
+      
+      case 'adjustTiming':
+        if (!value || typeof value !== 'number') {
+          return { isValid: false, error: 'Hours value is required' }
+        }
+        if (value < 1 || value > 168) {
+          return { isValid: false, error: 'Hours must be between 1 and 168' }
+        }
+        break
+    }
+    
+    return { isValid: true }
+  }
+
   static setupRealTimePolling(callback: (data: EmissionOverview) => void, intervalMs: number = 30000): () => void {
     const interval = setInterval(async () => {
       try {
@@ -697,11 +863,9 @@ export class EmissionService {
       }
     }, intervalMs)
 
-    // Return cleanup function
     return () => clearInterval(interval)
   }
 
-  // Get historical emission data for charts
   static getHistoricalEmissionData(startWeek: number, endWeek: number, emissionStartTimestamp: number): Array<{
     week: number
     date: string
@@ -736,7 +900,6 @@ export class EmissionService {
     return data
   }
 
-  // Get weekly breakdown for table display
   static getWeeklyBreakdownForTable(
     emissionStartTimestamp: number,
     currentTimestamp: number,
@@ -761,69 +924,5 @@ export class EmissionService {
       currentPage: page,
       totalWeeks
     }
-  }
-
-  // Format error messages for user display
-  static getEmissionOperationErrorMessage(error: any): string {
-    if (typeof error === 'string') return error
-    
-    if (error?.message) {
-      if (error.message.includes('E_NOT_AUTHORIZED')) {
-        return 'Only admin can perform this operation'
-      }
-      if (error.message.includes('E_NOT_INITIALIZED')) {
-        return 'Emission schedule has not been initialized'
-      }
-      if (error.message.includes('E_ALREADY_INITIALIZED')) {
-        return 'Emission schedule has already been initialized'
-      }
-      if (error.message.includes('E_NOT_PAUSED')) {
-        return 'System must be paused to perform this operation'
-      }
-      if (error.message.includes('E_INVALID_WEEK')) {
-        return 'Invalid week number (must be 1-156)'
-      }
-      if (error.message.includes('E_INVALID_ADJUSTMENT')) {
-        return 'Invalid timing adjustment (max 168 hours)'
-      }
-      if (error.message.includes('rejected')) {
-        return 'Transaction was rejected by user'
-      }
-      
-      return error.message
-    }
-    
-    return 'An unknown error occurred'
-  }
-
-  // Get transaction explorer URL
-  static getTransactionExplorerUrl(txDigest: string, network: string = 'testnet'): string {
-    const baseUrl = network === 'mainnet' ? 'https://suiexplorer.com' : 'https://suiexplorer.com'
-    return `${baseUrl}/txblock/${txDigest}?network=${network}`
-  }
-
-  // Validate admin operations
-  static validateAdminOperation(operation: string, value?: any): { isValid: boolean; error?: string } {
-    switch (operation) {
-      case 'resetToWeek':
-        if (!value || typeof value !== 'number') {
-          return { isValid: false, error: 'Week number is required' }
-        }
-        if (value < 1 || value > 156) {
-          return { isValid: false, error: 'Week must be between 1 and 156' }
-        }
-        break
-      
-      case 'adjustTiming':
-        if (!value || typeof value !== 'number') {
-          return { isValid: false, error: 'Hours value is required' }
-        }
-        if (value < 1 || value > 168) {
-          return { isValid: false, error: 'Hours must be between 1 and 168' }
-        }
-        break
-    }
-    
-    return { isValid: true }
   }
 }
