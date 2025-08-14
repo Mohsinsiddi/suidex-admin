@@ -1,4 +1,4 @@
-// utils/emissionUtils.ts
+// utils/emissionUtils.ts - FIXED TIME CALCULATIONS
 import { Transaction } from '@mysten/sui/transactions'
 import { suiClient } from './suiClient'
 import { CONSTANTS } from '../constants'
@@ -143,47 +143,184 @@ export const calculateTotalEmissionForWeek = (week: number): number => {
   return 0
 }
 
-// Calculate current week based on emission start timestamp
+// 🔥 FIXED: Calculate current week based on emission start timestamp
 export const calculateCurrentWeek = (emissionStartTimestamp: number, currentTimestamp: number): number => {
-  if (emissionStartTimestamp === 0 || currentTimestamp < emissionStartTimestamp) {
+  console.log('🔍 calculateCurrentWeek:', { emissionStartTimestamp, currentTimestamp })
+  
+  // Convert string timestamps to numbers if needed
+  const startTime = typeof emissionStartTimestamp === 'string' ? parseInt(emissionStartTimestamp) : emissionStartTimestamp
+  const currentTime = typeof currentTimestamp === 'string' ? parseInt(currentTimestamp) : currentTimestamp
+  
+  console.log('🔍 Converted timestamps:', { startTime, currentTime })
+  
+  if (startTime === 0 || isNaN(startTime) || isNaN(currentTime)) {
+    console.log('⚠️ Emission not initialized or invalid timestamps')
     return 0
   }
   
-  const elapsedSeconds = currentTimestamp - emissionStartTimestamp
+  if (currentTime < startTime) {
+    console.log('⚠️ Current time is before emission start')
+    return 0
+  }
+  
+  const elapsedSeconds = currentTime - startTime
   const weeksElapsed = Math.floor(elapsedSeconds / EMISSION_CONSTANTS.SECONDS_PER_WEEK)
-  return weeksElapsed + 1 // Week 1 starts immediately
+  const currentWeek = weeksElapsed + 1 // Week 1 starts immediately
+  
+  console.log('📊 Week calculation:', {
+    elapsedSeconds,
+    weeksElapsed,
+    currentWeek,
+    elapsedDays: elapsedSeconds / 86400
+  })
+  
+  return Math.min(currentWeek, EMISSION_CONSTANTS.TOTAL_EMISSION_WEEKS)
 }
 
-// Calculate week progress percentage
+// 🔥 FIXED: Calculate week progress percentage
 export const calculateWeekProgress = (emissionStartTimestamp: number, currentTimestamp: number, currentWeek: number): number => {
-  if (currentWeek === 0) return 0
+  console.log('🔍 calculateWeekProgress:', { emissionStartTimestamp, currentTimestamp, currentWeek })
   
-  const weekStartTimestamp = emissionStartTimestamp + ((currentWeek - 1) * EMISSION_CONSTANTS.SECONDS_PER_WEEK)
+  // Convert string timestamps to numbers if needed
+  const startTime = typeof emissionStartTimestamp === 'string' ? parseInt(emissionStartTimestamp) : emissionStartTimestamp
+  const currentTime = typeof currentTimestamp === 'string' ? parseInt(currentTimestamp) : currentTimestamp
+  
+  console.log('🔍 Converted timestamps:', { startTime, currentTime })
+  
+  if (currentWeek === 0 || startTime === 0 || isNaN(startTime) || isNaN(currentTime)) {
+    console.log('⚠️ Week progress = 0 (not started or invalid timestamps)')
+    return 0
+  }
+  
+  // Calculate when the current week started and ends
+  const weekStartTimestamp = startTime + ((currentWeek - 1) * EMISSION_CONSTANTS.SECONDS_PER_WEEK)
   const weekEndTimestamp = weekStartTimestamp + EMISSION_CONSTANTS.SECONDS_PER_WEEK
   
-  if (currentTimestamp >= weekEndTimestamp) return 100
-  if (currentTimestamp <= weekStartTimestamp) return 0
+  // Validate timestamps before creating Date objects
+  const isValidTimestamp = (ts: number) => ts > 0 && ts < 4102444800 // Valid until year 2100
   
-  const weekElapsed = currentTimestamp - weekStartTimestamp
-  return Math.floor((weekElapsed / EMISSION_CONSTANTS.SECONDS_PER_WEEK) * 100)
+  if (!isValidTimestamp(weekStartTimestamp) || !isValidTimestamp(weekEndTimestamp) || !isValidTimestamp(currentTime)) {
+    console.log('⚠️ Invalid timestamps detected, returning 0')
+    return 0
+  }
+  
+  console.log('📊 Week time boundaries:', {
+    weekStartTimestamp,
+    weekEndTimestamp,
+    currentTime,
+    weekStartDate: new Date(weekStartTimestamp * 1000).toISOString(),
+    weekEndDate: new Date(weekEndTimestamp * 1000).toISOString(),
+    currentDate: new Date(currentTime * 1000).toISOString()
+  })
+  
+  if (currentTime >= weekEndTimestamp) {
+    console.log('✅ Week completed (100%)')
+    return 100
+  }
+  
+  if (currentTime <= weekStartTimestamp) {
+    console.log('⚠️ Week not started yet (0%)')
+    return 0
+  }
+  
+  const weekElapsed = currentTime - weekStartTimestamp
+  const progress = Math.floor((weekElapsed / EMISSION_CONSTANTS.SECONDS_PER_WEEK) * 100)
+  
+  console.log('📊 Week progress calculation:', {
+    weekElapsed,
+    weekDuration: EMISSION_CONSTANTS.SECONDS_PER_WEEK,
+    progress: progress + '%'
+  })
+  
+  return Math.min(100, Math.max(0, progress))
 }
 
-// Calculate remaining time in current week
+// 🔥 FIXED: Calculate remaining time in current week
 export const calculateRemainingTimeInWeek = (emissionStartTimestamp: number, currentTimestamp: number, currentWeek: number): number => {
-  if (currentWeek === 0) return 0
+  console.log('🔍 calculateRemainingTimeInWeek:', { emissionStartTimestamp, currentTimestamp, currentWeek })
   
-  const weekStartTimestamp = emissionStartTimestamp + ((currentWeek - 1) * EMISSION_CONSTANTS.SECONDS_PER_WEEK)
+  // Convert string timestamps to numbers if needed
+  const startTime = typeof emissionStartTimestamp === 'string' ? parseInt(emissionStartTimestamp) : emissionStartTimestamp
+  const currentTime = typeof currentTimestamp === 'string' ? parseInt(currentTimestamp) : currentTimestamp
+  
+  console.log('🔍 Converted timestamps:', { startTime, currentTime })
+  
+  if (currentWeek === 0 || startTime === 0 || isNaN(startTime) || isNaN(currentTime)) {
+    console.log('⚠️ No remaining time (not started or invalid timestamps)')
+    return 0
+  }
+  
+  // Calculate when the current week ends
+  const weekStartTimestamp = startTime + ((currentWeek - 1) * EMISSION_CONSTANTS.SECONDS_PER_WEEK)
   const weekEndTimestamp = weekStartTimestamp + EMISSION_CONSTANTS.SECONDS_PER_WEEK
   
-  return Math.max(0, weekEndTimestamp - currentTimestamp)
+  // Validate timestamps
+  const isValidTimestamp = (ts: number) => ts > 0 && ts < 4102444800 // Valid until year 2100
+  
+  if (!isValidTimestamp(weekEndTimestamp) || !isValidTimestamp(currentTime)) {
+    console.log('⚠️ Invalid timestamps detected, returning 0')
+    return 0
+  }
+  
+  console.log('📊 Remaining time calculation:', {
+    weekStartTimestamp,
+    weekEndTimestamp,
+    currentTime,
+    weekEndDate: new Date(weekEndTimestamp * 1000).toISOString()
+  })
+  
+  const remainingSeconds = Math.max(0, weekEndTimestamp - currentTime)
+  
+  console.log('⏰ Remaining time in week:', {
+    remainingSeconds,
+    remainingHours: remainingSeconds / 3600,
+    remainingDays: remainingSeconds / 86400
+  })
+  
+  return remainingSeconds
 }
 
-// Calculate total remaining time until emissions end
+// 🔥 FIXED: Calculate total remaining time until emissions end
 export const calculateTotalRemainingTime = (emissionStartTimestamp: number, currentTimestamp: number): number => {
-  if (emissionStartTimestamp === 0) return 0
+  console.log('🔍 calculateTotalRemainingTime:', { emissionStartTimestamp, currentTimestamp })
   
-  const totalEndTimestamp = emissionStartTimestamp + (EMISSION_CONSTANTS.TOTAL_EMISSION_WEEKS * EMISSION_CONSTANTS.SECONDS_PER_WEEK)
-  return Math.max(0, totalEndTimestamp - currentTimestamp)
+  // Convert string timestamps to numbers if needed
+  const startTime = typeof emissionStartTimestamp === 'string' ? parseInt(emissionStartTimestamp) : emissionStartTimestamp
+  const currentTime = typeof currentTimestamp === 'string' ? parseInt(currentTimestamp) : currentTimestamp
+  
+  console.log('🔍 Converted timestamps:', { startTime, currentTime })
+  
+  if (startTime === 0 || isNaN(startTime) || isNaN(currentTime)) {
+    console.log('⚠️ No total remaining time (not initialized or invalid timestamps)')
+    return 0
+  }
+  
+  // Calculate when all emissions end (after 156 weeks)
+  const totalEndTimestamp = startTime + (EMISSION_CONSTANTS.TOTAL_EMISSION_WEEKS * EMISSION_CONSTANTS.SECONDS_PER_WEEK)
+  
+  // Validate timestamps
+  const isValidTimestamp = (ts: number) => ts > 0 && ts < 4102444800 // Valid until year 2100
+  
+  if (!isValidTimestamp(totalEndTimestamp) || !isValidTimestamp(currentTime)) {
+    console.log('⚠️ Invalid timestamps detected, returning 0')
+    return 0
+  }
+  
+  console.log('📊 Total remaining time calculation:', {
+    totalEndTimestamp,
+    currentTime,
+    endDate: new Date(totalEndTimestamp * 1000).toISOString()
+  })
+  
+  const remainingSeconds = Math.max(0, totalEndTimestamp - currentTime)
+  
+  console.log('⏰ Total remaining time:', {
+    remainingSeconds,
+    remainingWeeks: remainingSeconds / EMISSION_CONSTANTS.SECONDS_PER_WEEK,
+    remainingDays: remainingSeconds / 86400
+  })
+  
+  return remainingSeconds
 }
 
 // Get phase from week number
@@ -228,14 +365,22 @@ export const formatEmissionRate = (rateInMist: number): string => {
   return (rateInMist / Math.pow(10, EMISSION_CONSTANTS.VICTORY_DECIMALS)).toFixed(6)
 }
 
-// Format time duration
+// 🔥 FIXED: Format time duration
 export const formatDuration = (seconds: number): string => {
+  console.log('🔍 formatDuration input:', seconds)
+  
   if (seconds <= 0) return '0s'
+  
+  // Handle very large numbers gracefully
+  if (seconds > 1e10) {
+    console.log('⚠️ Very large duration detected, capping')
+    return '> 100 years'
+  }
   
   const days = Math.floor(seconds / 86400)
   const hours = Math.floor((seconds % 86400) / 3600)
   const minutes = Math.floor((seconds % 3600) / 60)
-  const secs = seconds % 60
+  const secs = Math.floor(seconds % 60)
   
   const parts = []
   if (days > 0) parts.push(`${days}d`)
@@ -243,7 +388,9 @@ export const formatDuration = (seconds: number): string => {
   if (minutes > 0) parts.push(`${minutes}m`)
   if (secs > 0 || parts.length === 0) parts.push(`${secs}s`)
   
-  return parts.slice(0, 2).join(' ')
+  const result = parts.slice(0, 2).join(' ')
+  console.log('✅ formatDuration result:', result)
+  return result
 }
 
 // Format large numbers
