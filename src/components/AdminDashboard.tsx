@@ -6,6 +6,7 @@ import { AdminHeader } from './AdminHeader'
 import PoolManagement from './PoolManagement'
 import CommonMonitoringTab from './CommonMonitoringTab'
 import VictoryTokenControl from './VictoryTokenControl'
+import EmissionManagement from './EmissionManagement'
 import { 
   OverviewIcon, 
   PoolIcon, 
@@ -394,71 +395,7 @@ function OverviewTab() {
 }
 
 function EmissionsTab() {
-  return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-white mb-4">Emissions Control</h2>
-      
-      {/* Emission Schedule */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/30 rounded-xl p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Current Schedule</h3>
-          <div className="space-y-3">
-            <div className="flex justify-between">
-              <span className="text-slate-300">Current Week</span>
-              <span className="text-white">12 / 156</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-300">LP Allocation</span>
-              <span className="text-blue-400">75%</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-300">Single Allocation</span>
-              <span className="text-purple-400">25%</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-300">Status</span>
-              <span className="text-green-400">Active</span>
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/30 rounded-xl p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Weekly Emissions</h3>
-          <div className="space-y-3">
-            <div className="flex justify-between">
-              <span className="text-slate-300">This Week</span>
-              <span className="text-white">50,000 VICTORY</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-300">Next Week</span>
-              <span className="text-slate-400">49,500 VICTORY</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-300">Total Distributed</span>
-              <span className="text-green-400">600,000 VICTORY</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-300">Remaining</span>
-              <span className="text-yellow-400">7.2M VICTORY</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Emission Controls */}
-      <div className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/30 rounded-xl p-6">
-        <h3 className="text-lg font-semibold text-white mb-4">Emergency Controls</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <button className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-4 py-3 rounded-lg transition-all duration-200">
-            Pause Emissions
-          </button>
-          <button className="bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-3 rounded-lg transition-all duration-200">
-            Resume Emissions
-          </button>
-        </div>
-      </div>
-    </div>
-  )
+  return <EmissionManagement />
 }
 
 function FactoryTab() {
