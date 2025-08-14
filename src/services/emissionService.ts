@@ -365,35 +365,48 @@ export class EmissionService {
 
       const currentTimestamp = Math.floor(Date.now() / 1000)
       
+      // 🔥 ENSURE TIMESTAMPS ARE NUMBERS
+      const emissionStartTime = typeof config.emissionStartTimestamp === 'string' 
+        ? parseInt(config.emissionStartTimestamp) 
+        : config.emissionStartTimestamp
+      
+      console.log('🔍 EmissionService: Timestamp validation:', {
+        configTimestamp: config.emissionStartTimestamp,
+        configType: typeof config.emissionStartTimestamp,
+        parsedTimestamp: emissionStartTime,
+        currentTimestamp,
+        timestampDiff: currentTimestamp - emissionStartTime
+      })
+      
       // Calculate week using our utils (based on config timestamp)
-      const calculatedWeek = calculateCurrentWeek(config.emissionStartTimestamp, currentTimestamp)
+      const calculatedWeek = calculateCurrentWeek(emissionStartTime, currentTimestamp)
       const contractWeek = systemStatus.currentWeek
       
       // Use the most reliable week number
-      const currentWeek = config.emissionStartTimestamp > 0 ? calculatedWeek : contractWeek
+      const currentWeek = emissionStartTime > 0 ? calculatedWeek : contractWeek
       const phase = getPhaseFromWeek(currentWeek)
       
       console.log('🔍 EmissionService: Week calculation comparison:', {
-        configTimestamp: config.emissionStartTimestamp,
+        emissionStartTime,
         currentTimestamp,
         calculatedWeek,
         contractWeek,
         finalWeek: currentWeek,
-        timeDiff: currentTimestamp - config.emissionStartTimestamp
+        timeDiff: currentTimestamp - emissionStartTime
       })
       
-      // Calculate detailed status
+      // Calculate detailed status with proper number types
       const status: EmissionStatus = {
         currentWeek,
         currentPhase: phase,
         phaseName: getPhaseName(phase),
         isActive: systemStatus.isActive,
         isPaused: systemStatus.paused,
-        emissionStartTimestamp: config.emissionStartTimestamp,
+        emissionStartTimestamp: emissionStartTime, // ✅ Ensure this is a number
         currentTimestamp,
-        weekProgress: calculateWeekProgress(config.emissionStartTimestamp, currentTimestamp, currentWeek),
-        remainingTimeInWeek: calculateRemainingTimeInWeek(config.emissionStartTimestamp, currentTimestamp, currentWeek),
-        totalRemainingTime: calculateTotalRemainingTime(config.emissionStartTimestamp, currentTimestamp)
+        weekProgress: calculateWeekProgress(emissionStartTime, currentTimestamp, currentWeek),
+        remainingTimeInWeek: calculateRemainingTimeInWeek(emissionStartTime, currentTimestamp, currentWeek),
+        totalRemainingTime: calculateTotalRemainingTime(emissionStartTime, currentTimestamp)
       }
 
       // Get current emission rates
@@ -412,7 +425,7 @@ export class EmissionService {
       // Debug information
       const debugInfo = {
         emissionStartFromEvents: eventTimestampResult.timestamp,
-        emissionStartFromContract: config.emissionStartTimestamp,
+        emissionStartFromContract: emissionStartTime,
         currentTimestamp,
         calculatedWeek,
         contractWeek,
@@ -435,6 +448,7 @@ export class EmissionService {
         isPaused: overview.status.isPaused,
         emissionStart: overview.status.emissionStartTimestamp,
         weekProgress: overview.status.weekProgress,
+        remainingTimeInWeek: overview.status.remainingTimeInWeek,
         debugInfo: overview.debugInfo
       })
 
