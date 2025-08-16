@@ -837,7 +837,7 @@ export class TokenLockerEventService {
   }
 
   // Format amount for display
-  static formatAmount(amount: string, decimals: number = 9): string {
+  static formatAmount(amount: string, decimals: number = 6): string {
     try {
       if (!amount || amount === '0') return '0'
       
