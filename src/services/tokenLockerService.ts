@@ -225,9 +225,63 @@ export class TokenLockerService {
     }
   }
 
-  // Fetch Victory and SUI allocations
+  // 🔧 FIXED: Fetch allocations from TokenLocker object fields directly
   static async fetchAllocations(): Promise<TokenLockerConfig['allocations']> {
     try {
+      // First try to get data from TokenLocker object fields directly
+      const tokenLocker = await suiClient.getObject({
+        id: CONSTANTS.TOKEN_LOCKER_ID,
+        options: {
+          showContent: true,
+          showType: true
+        }
+      })
+
+      if (tokenLocker.data?.content && 'fields' in tokenLocker.data.content) {
+        const fields = tokenLocker.data.content.fields as any
+        
+        console.log('TokenLocker fields for allocations:', fields)
+
+        // Extract allocation fields directly from TokenLocker object
+        const victoryWeek = parseInt(fields.victory_week_allocation || '200')
+        const victoryThreeMonth = parseInt(fields.victory_three_month_allocation || '800')
+        const victoryYear = parseInt(fields.victory_year_allocation || '2500')
+        const victoryThreeYear = parseInt(fields.victory_three_year_allocation || '6500')
+        
+        const suiWeek = parseInt(fields.sui_week_allocation || '1000')
+        const suiThreeMonth = parseInt(fields.sui_three_month_allocation || '2000')
+        const suiYear = parseInt(fields.sui_year_allocation || '3000')
+        const suiThreeYear = parseInt(fields.sui_three_year_allocation || '4000')
+
+        const victoryTotal = victoryWeek + victoryThreeMonth + victoryYear + victoryThreeYear
+        const suiTotal = suiWeek + suiThreeMonth + suiYear + suiThreeYear
+
+        console.log('Allocations extracted from TokenLocker:', {
+          victory: { victoryWeek, victoryThreeMonth, victoryYear, victoryThreeYear, victoryTotal },
+          sui: { suiWeek, suiThreeMonth, suiYear, suiThreeYear, suiTotal }
+        })
+
+        return {
+          victory: {
+            week: victoryWeek,
+            threeMonth: victoryThreeMonth,
+            year: victoryYear,
+            threeYear: victoryThreeYear,
+            total: victoryTotal
+          },
+          sui: {
+            week: suiWeek,
+            threeMonth: suiThreeMonth,
+            year: suiYear,
+            threeYear: suiThreeYear,
+            total: suiTotal
+          }
+        }
+      }
+
+      // Fallback: Try Move function calls if direct access fails
+      console.log('Falling back to Move function calls for allocations...')
+      
       const tx = new Transaction()
       tx.moveCall({
         target: `${CONSTANTS.PACKAGE_ID}::victory_token_locker::get_victory_allocations`,
@@ -255,21 +309,27 @@ export class TokenLockerService {
       const victoryValues = victoryResult.results?.[0]?.returnValues || []
       const suiValues = suiResult.results?.[0]?.returnValues || []
 
+      const victoryData = {
+        week: parseInt(victoryValues[0]?.[0] || '200'),
+        threeMonth: parseInt(victoryValues[1]?.[0] || '800'),
+        year: parseInt(victoryValues[2]?.[0] || '2500'),
+        threeYear: parseInt(victoryValues[3]?.[0] || '6500'),
+        total: parseInt(victoryValues[4]?.[0] || '10000')
+      }
+
+      const suiData = {
+        week: parseInt(suiValues[0]?.[0] || '1000'),
+        threeMonth: parseInt(suiValues[1]?.[0] || '2000'),
+        year: parseInt(suiValues[2]?.[0] || '3000'),
+        threeYear: parseInt(suiValues[3]?.[0] || '4000'),
+        total: parseInt(suiValues[4]?.[0] || '10000')
+      }
+
+      console.log('Allocations from Move calls:', { victory: victoryData, sui: suiData })
+
       return {
-        victory: {
-          week: parseInt(victoryValues[0]?.[0] || '0'),
-          threeMonth: parseInt(victoryValues[1]?.[0] || '0'),
-          year: parseInt(victoryValues[2]?.[0] || '0'),
-          threeYear: parseInt(victoryValues[3]?.[0] || '0'),
-          total: parseInt(victoryValues[4]?.[0] || '0')
-        },
-        sui: {
-          week: parseInt(suiValues[0]?.[0] || '0'),
-          threeMonth: parseInt(suiValues[1]?.[0] || '0'),
-          year: parseInt(suiValues[2]?.[0] || '0'),
-          threeYear: parseInt(suiValues[3]?.[0] || '0'),
-          total: parseInt(suiValues[4]?.[0] || '0')
-        }
+        victory: victoryData,
+        sui: suiData
       }
     } catch (error) {
       console.error('Error fetching allocations:', error)
@@ -315,31 +375,105 @@ export class TokenLockerService {
     }
   }
 
-  // Fetch current epoch information
+  // 🔧 FIXED: Fetch current epoch information from blockchain events
   static async fetchCurrentEpochInfo(): Promise<TokenLockerConfig['currentEpoch']> {
     try {
-      const tx = new Transaction()
-      tx.moveCall({
-        target: `${CONSTANTS.PACKAGE_ID}::victory_token_locker::get_current_epoch_info`,
-        arguments: [tx.object(CONSTANTS.TOKEN_LOCKER_ID)]
+      // Get the latest EpochCreated events to find current epoch
+      const epochCreatedEvents = await suiClient.queryEvents({
+        query: {
+          MoveEventType: `${CONSTANTS.PACKAGE_ID}::victory_token_locker::EpochCreated`
+        },
+        limit: 10,
+        order: 'descending'
       })
 
-      const result = await suiClient.devInspectTransactionBlock({
-        transactionBlock: tx,
-        sender: '0x0000000000000000000000000000000000000000000000000000000000000000'
+      // Get the latest WeeklyRevenueAdded events to check finalization
+      const revenueEvents = await suiClient.queryEvents({
+        query: {
+          MoveEventType: `${CONSTANTS.PACKAGE_ID}::victory_token_locker::WeeklyRevenueAdded`
+        },
+        limit: 20,
+        order: 'descending'
       })
 
-      const values = result.results?.[0]?.returnValues || []
+      console.log('Epoch events found:', {
+        epochCreated: epochCreatedEvents.data?.length || 0,
+        revenueAdded: revenueEvents.data?.length || 0
+      })
 
-      return {
-        id: parseInt(values[0]?.[0] || '0'),
-        weekStart: parseInt(values[1]?.[0] || '0'),
-        weekEnd: parseInt(values[2]?.[0] || '0'),
-        isClaimable: values[3]?.[0] === 1 || values[3]?.[0] === true,
-        allocationsFinalized: values[4]?.[0] === 1 || values[4]?.[0] === true
+      let currentEpoch = {
+        id: 0,
+        weekStart: 0,
+        weekEnd: 0,
+        isClaimable: false,
+        allocationsFinalized: false
       }
+
+      // Find the latest epoch from EpochCreated events
+      if (epochCreatedEvents.data && epochCreatedEvents.data.length > 0) {
+        const latestEpochEvent = epochCreatedEvents.data[0]
+        const epochData = latestEpochEvent.parsedJson as any
+
+        console.log('Latest epoch event:', epochData)
+
+        currentEpoch = {
+          id: parseInt(epochData.epoch_id || '0'),
+          weekStart: parseInt(epochData.week_start || '0'),
+          weekEnd: parseInt(epochData.week_end || '0'),
+          isClaimable: false, // Will be updated based on revenue events
+          allocationsFinalized: false // Will be updated based on revenue events
+        }
+
+        // Check if this epoch has revenue added (which makes it claimable and finalized)
+        if (revenueEvents.data && revenueEvents.data.length > 0) {
+          const hasRevenueForEpoch = revenueEvents.data.some(event => {
+            const revenueData = event.parsedJson as any
+            return parseInt(revenueData.epoch_id || '0') === currentEpoch.id
+          })
+
+          if (hasRevenueForEpoch) {
+            currentEpoch.isClaimable = true
+            currentEpoch.allocationsFinalized = true
+          }
+        }
+      }
+
+      console.log('Current epoch info from events:', currentEpoch)
+      return currentEpoch
+
     } catch (error) {
-      console.error('Error fetching current epoch info:', error)
+      console.error('Error fetching epoch info from events:', error)
+      
+      // Fallback: Try direct object access
+      try {
+        const tokenLocker = await suiClient.getObject({
+          id: CONSTANTS.TOKEN_LOCKER_ID,
+          options: {
+            showContent: true,
+            showType: true
+          }
+        })
+
+        if (tokenLocker.data?.content && 'fields' in tokenLocker.data.content) {
+          const fields = tokenLocker.data.content.fields as any
+          
+          const epochId = parseInt(fields.current_epoch_id || '0')
+          const weekStart = parseInt(fields.current_week_start || '0')
+          const weekDuration = 7 * 24 * 60 * 60 // 7 days in seconds
+          const weekEnd = weekStart > 0 ? weekStart + weekDuration : 0
+
+          return {
+            id: epochId,
+            weekStart: weekStart,
+            weekEnd: weekEnd,
+            isClaimable: epochId > 0,
+            allocationsFinalized: epochId > 0
+          }
+        }
+      } catch (fallbackError) {
+        console.error('Fallback epoch fetch also failed:', fallbackError)
+      }
+
       return {
         id: 0,
         weekStart: 0,
@@ -347,6 +481,162 @@ export class TokenLockerService {
         isClaimable: false,
         allocationsFinalized: false
       }
+    }
+  }
+
+  // 🆕 NEW: Get detailed epoch information with revenue data
+  static async fetchEpochDetails(epochId?: number): Promise<{
+    epochInfo: TokenLockerConfig['currentEpoch']
+    revenueData: {
+      totalRevenue: string
+      weekPoolSui: string
+      threeMonthPoolSui: string
+      yearPoolSui: string
+      threeYearPoolSui: string
+      txDigest?: string
+      timestamp?: string
+    } | null
+  }> {
+    try {
+      // If no epochId provided, get current epoch
+      const currentEpochInfo = epochId ? 
+        { id: epochId, weekStart: 0, weekEnd: 0, isClaimable: false, allocationsFinalized: false } :
+        await this.fetchCurrentEpochInfo()
+
+      const targetEpochId = epochId || currentEpochInfo.id
+
+      if (targetEpochId === 0) {
+        return {
+          epochInfo: currentEpochInfo,
+          revenueData: null
+        }
+      }
+
+      // Get all revenue events for this epoch
+      const revenueEvents = await suiClient.queryEvents({
+        query: {
+          MoveEventType: `${CONSTANTS.PACKAGE_ID}::victory_token_locker::WeeklyRevenueAdded`
+        },
+        limit: 50,
+        order: 'descending'
+      })
+
+      console.log(`Looking for revenue data for epoch ${targetEpochId}`)
+
+      let revenueData = null
+
+      if (revenueEvents.data && revenueEvents.data.length > 0) {
+        // Find revenue event for this specific epoch
+        const epochRevenueEvent = revenueEvents.data.find(event => {
+          const eventData = event.parsedJson as any
+          return parseInt(eventData.epoch_id || '0') === targetEpochId
+        })
+
+        if (epochRevenueEvent) {
+          const eventData = epochRevenueEvent.parsedJson as any
+          
+          revenueData = {
+            totalRevenue: this.formatSUIAmount(eventData.total_week_revenue || '0'),
+            weekPoolSui: this.formatSUIAmount(eventData.week_pool_sui || '0'),
+            threeMonthPoolSui: this.formatSUIAmount(eventData.three_month_pool_sui || '0'),
+            yearPoolSui: this.formatSUIAmount(eventData.year_pool_sui || '0'),
+            threeYearPoolSui: this.formatSUIAmount(eventData.three_year_pool_sui || '0'),
+            txDigest: epochRevenueEvent.id.txDigest,
+            timestamp: epochRevenueEvent.timestampMs
+          }
+
+          console.log(`Found revenue data for epoch ${targetEpochId}:`, revenueData)
+
+          // Update epoch status if revenue found
+          if (!epochId) { // Only update if we're checking current epoch
+            currentEpochInfo.isClaimable = true
+            currentEpochInfo.allocationsFinalized = true
+          }
+        }
+      }
+
+      return {
+        epochInfo: currentEpochInfo,
+        revenueData
+      }
+
+    } catch (error) {
+      console.error('Error fetching epoch details:', error)
+      return {
+        epochInfo: {
+          id: 0,
+          weekStart: 0,
+          weekEnd: 0,
+          isClaimable: false,
+          allocationsFinalized: false
+        },
+        revenueData: null
+      }
+    }
+  }
+
+  // 🆕 NEW: Get all epochs with revenue data for admin dashboard
+  static async fetchAllEpochsWithRevenue(): Promise<Array<{
+    epochId: number
+    weekStart: number
+    weekEnd: number
+    totalRevenue: string
+    isClaimable: boolean
+    txDigest: string
+    timestamp: string
+  }>> {
+    try {
+      // Get all WeeklyRevenueAdded events
+      const revenueEvents = await suiClient.queryEvents({
+        query: {
+          MoveEventType: `${CONSTANTS.PACKAGE_ID}::victory_token_locker::WeeklyRevenueAdded`
+        },
+        limit: 100,
+        order: 'descending'
+      })
+
+      const epochs: Array<{
+        epochId: number
+        weekStart: number
+        weekEnd: number
+        totalRevenue: string
+        isClaimable: boolean
+        txDigest: string
+        timestamp: string
+      }> = []
+
+      if (revenueEvents.data && revenueEvents.data.length > 0) {
+        for (const event of revenueEvents.data) {
+          const eventData = event.parsedJson as any
+          const epochId = parseInt(eventData.epoch_id || '0')
+          
+          // Calculate week start/end based on epoch ID (assuming weekly intervals)
+          const currentTime = Math.floor(Date.now() / 1000)
+          const weekDuration = 7 * 24 * 60 * 60 // 7 days in seconds
+          const weekStart = currentTime - (epochId * weekDuration)
+          const weekEnd = weekStart + weekDuration
+
+          epochs.push({
+            epochId,
+            weekStart,
+            weekEnd,
+            totalRevenue: this.formatSUIAmount(eventData.total_week_revenue || '0'),
+            isClaimable: true, // If revenue was added, it's claimable
+            txDigest: event.id.txDigest || '',
+            timestamp: event.timestampMs || '0'
+          })
+        }
+      }
+
+      // Sort by epoch ID descending (latest first)
+      epochs.sort((a, b) => b.epochId - a.epochId)
+
+      console.log(`Found ${epochs.length} epochs with revenue data`)
+      return epochs
+
+    } catch (error) {
+      console.error('Error fetching all epochs with revenue:', error)
+      return []
     }
   }
 
