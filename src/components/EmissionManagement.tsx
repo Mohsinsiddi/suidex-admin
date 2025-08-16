@@ -10,6 +10,7 @@ import {
   validateTimingAdjustment,
   EMISSION_PHASES,
 } from '../utils/emissionUtils'
+import { CONSTANTS } from '../constants'
 
 // Icons
 function PlayIcon({ className = "w-4 h-4" }: { className?: string }) {
@@ -557,7 +558,11 @@ function ControlsTab({
     }
   }
 
-  const canPerformAction = connected && authMethod === 'secret'
+
+  const canPerformAction = connected && (
+  authMethod === 'secret' || 
+  account?.address === CONSTANTS.ADMIN
+)
 
   return (
     <div className="space-y-6">

@@ -40,5 +40,6 @@ export const CONSTANTS = {
     
     // Network configuration
     NETWORK: 'testnet' as const,
-    RPC_URL: 'https://fullnode.testnet.sui.io:443'
+    RPC_URL: 'https://fullnode.testnet.sui.io:443',
+    ADMIN: '0x9b15baa31a2d308bd09f9258f0a9db09da3d4e8e113cf1888efa919d9778fa7c'
 }
