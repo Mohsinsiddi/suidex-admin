@@ -8,6 +8,7 @@ import CommonMonitoringTab from './CommonMonitoringTab'
 import VictoryTokenControl from './VictoryTokenControl'
 import EmissionManagement from './EmissionManagement'
 import FactoryTab from './FactoryTab'
+import TokenLockerTab from './TokenLockerTab'
 import { 
   OverviewIcon, 
   PoolIcon, 
@@ -116,7 +117,7 @@ export default function AdminDashboard() {
               />
               <NavItem
                 icon={<FactoryIcon />}
-                label="Factory"
+                label="DEX Factory"
                 active={activeTab === 'factory'}
                 onClick={() => setActiveTab('factory')}
               />
@@ -407,67 +408,7 @@ function FactoryTabRender() {
 
 function LockerTab() {
   return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-white mb-4">Token Locker</h2>
-      
-      {/* Locker Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/30 rounded-xl p-6">
-          <div className="text-slate-400 text-sm">Total Locked</div>
-          <div className="text-2xl font-bold text-white mt-1">2.5M VICTORY</div>
-          <div className="text-green-400 text-sm mt-1">6 months avg lock</div>
-        </div>
-        <div className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/30 rounded-xl p-6">
-          <div className="text-slate-400 text-sm">SUI Revenue</div>
-          <div className="text-2xl font-bold text-white mt-1">125.4 SUI</div>
-          <div className="text-blue-400 text-sm mt-1">This week</div>
-        </div>
-        <div className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/30 rounded-xl p-6">
-          <div className="text-slate-400 text-sm">Active Locks</div>
-          <div className="text-2xl font-bold text-white mt-1">234</div>
-          <div className="text-purple-400 text-sm mt-1">Unique lockers</div>
-        </div>
-      </div>
-
-      {/* Revenue Distribution */}
-      <div className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/30 rounded-xl p-6">
-        <h3 className="text-lg font-semibold text-white mb-4">Revenue Distribution</h3>
-        <div className="space-y-4">
-          <div>
-            <div className="flex justify-between mb-2">
-              <span className="text-slate-300">To Lockers</span>
-              <span className="text-white">80% (100.32 SUI)</span>
-            </div>
-            <div className="w-full bg-slate-700 rounded-full h-2">
-              <div className="bg-green-500 h-2 rounded-full" style={{ width: '80%' }}></div>
-            </div>
-          </div>
-          
-          <div>
-            <div className="flex justify-between mb-2">
-              <span className="text-slate-300">Protocol Treasury</span>
-              <span className="text-white">20% (25.08 SUI)</span>
-            </div>
-            <div className="w-full bg-slate-700 rounded-full h-2">
-              <div className="bg-blue-500 h-2 rounded-full" style={{ width: '20%' }}></div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Lock Management */}
-      <div className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/30 rounded-xl p-6">
-        <h3 className="text-lg font-semibold text-white mb-4">Lock Management</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <button className="bg-purple-600 hover:bg-purple-700 text-white font-semibold px-4 py-3 rounded-lg transition-all duration-200">
-            View All Locks
-          </button>
-          <button className="bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-3 rounded-lg transition-all duration-200">
-            Distribute Revenue
-          </button>
-        </div>
-      </div>
-    </div>
+   <TokenLockerTab />
   )
 }
 

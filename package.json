@@ -12,6 +12,7 @@
   "dependencies": {
     "@mysten/sui": "^1.37.1",
     "@suiet/wallet-kit": "^0.5.1",
+    "lucide-react": "^0.539.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },
