@@ -7,6 +7,7 @@ import PoolManagement from './PoolManagement'
 import CommonMonitoringTab from './CommonMonitoringTab'
 import VictoryTokenControl from './VictoryTokenControl'
 import EmissionManagement from './EmissionManagement'
+import FactoryTab from './FactoryTab'
 import { 
   OverviewIcon, 
   PoolIcon, 
@@ -255,7 +256,7 @@ export default function AdminDashboard() {
           {activeTab === 'monitoring' && <CommonMonitoringTab />}
           {activeTab === 'tokens' && <VictoryTokenControl />}
           {activeTab === 'emissions' && <EmissionsTab />}
-          {activeTab === 'factory' && <FactoryTab />}
+          {activeTab === 'factory' && <FactoryTabRender />}
           {activeTab === 'locker' && <LockerTab />}
           {activeTab === 'analytics' && <AnalyticsTab />}
         </div>
@@ -398,56 +399,9 @@ function EmissionsTab() {
   return <EmissionManagement />
 }
 
-function FactoryTab() {
+function FactoryTabRender() {
   return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-white mb-4">Factory Control</h2>
-      
-      {/* Protocol Status */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/30 rounded-xl p-6">
-          <div className="text-slate-400 text-sm">Protocol Status</div>
-          <div className="text-2xl font-bold text-green-400 mt-1">Active</div>
-          <div className="text-slate-300 text-sm mt-1">All systems operational</div>
-        </div>
-        <div className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/30 rounded-xl p-6">
-          <div className="text-slate-400 text-sm">Total Pairs</div>
-          <div className="text-2xl font-bold text-white mt-1">45</div>
-          <div className="text-blue-400 text-sm mt-1">LP tokens available</div>
-        </div>
-        <div className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/30 rounded-xl p-6">
-          <div className="text-slate-400 text-sm">Factory Fee</div>
-          <div className="text-2xl font-bold text-white mt-1">0.3%</div>
-          <div className="text-purple-400 text-sm mt-1">Per swap</div>
-        </div>
-      </div>
-
-      {/* Factory Actions */}
-      <div className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/30 rounded-xl p-6">
-        <h3 className="text-lg font-semibold text-white mb-4">Factory Settings</h3>
-        <div className="space-y-4">
-          <div className="flex items-center justify-between p-4 bg-slate-700/30 rounded-lg">
-            <div>
-              <div className="text-white font-medium">Allow New Pairs</div>
-              <div className="text-slate-400 text-sm">Enable creation of new LP pairs</div>
-            </div>
-            <div className="w-12 h-6 bg-green-500 rounded-full relative">
-              <div className="w-5 h-5 bg-white rounded-full absolute right-0.5 top-0.5"></div>
-            </div>
-          </div>
-          
-          <div className="flex items-center justify-between p-4 bg-slate-700/30 rounded-lg">
-            <div>
-              <div className="text-white font-medium">Protocol Fees</div>
-              <div className="text-slate-400 text-sm">Collect fees to protocol treasury</div>
-            </div>
-            <div className="w-12 h-6 bg-green-500 rounded-full relative">
-              <div className="w-5 h-5 bg-white rounded-full absolute right-0.5 top-0.5"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <FactoryTab/>
   )
 }
 

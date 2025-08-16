@@ -560,7 +560,6 @@ function ControlsTab({
 
 
   const canPerformAction = connected && (
-  authMethod === 'secret' || 
   account?.address === CONSTANTS.ADMIN
 )
 
