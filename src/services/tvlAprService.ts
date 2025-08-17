@@ -1,8 +1,9 @@
-// services/tvlAprService.ts
+// Complete Fixed TVL Service based on working pattern
 import { suiClient } from '../utils/suiClient'
 import { CONSTANTS } from '../constants'
 import { EventBasedPoolService } from './eventBasedPoolService'
 import { TokenLockerService } from './tokenLockerService'
+import { Transaction } from '@mysten/sui/transactions'
 
 // ================================
 // TYPES & INTERFACES
@@ -96,34 +97,110 @@ interface FarmPoolInfo {
   totalStaked: string
   allocationPoints: number
   isActive: boolean
-  pairId?: string // Only for LP pools
+  pairId?: string
 }
 
 // ================================
-// MAIN SERVICE CLASS
+// EXTERNAL UTILITY FUNCTIONS (WORKING PATTERN)
+// ================================
+
+/**
+ * Parse blockchain value - EXTERNAL FUNCTION (not class method)
+ * This matches your working parseBlockchainValue function
+ */
+function parseBlockchainValue(value: any): any {
+  try {
+    if (Array.isArray(value) && value.length === 2 && typeof value[1] === 'string') {
+      const [dataArray, typeStr] = value
+
+      if (typeStr.startsWith('u') && Array.isArray(dataArray)) {
+        return parseU256ByteArray(dataArray)  // ✅ EXTERNAL function call
+      }
+
+      if (typeStr === 'bool' && Array.isArray(dataArray)) {
+        return dataArray.length === 1 ? dataArray[0] === 1 : false
+      }
+    }
+
+    if (typeof value === 'number' || typeof value === 'bigint') {
+      return value
+    }
+
+    if (typeof value === 'boolean') {
+      return value
+    }
+
+    console.warn('Could not parse blockchain value:', value)
+    return value
+  } catch (error) {
+    console.error('Error parsing blockchain value:', error)
+    return 0
+  }
+}
+
+/**
+ * Parse U256 byte array - EXTERNAL FUNCTION (not class method)
+ */
+function parseU256ByteArray(byteArray: number[]): bigint {
+  if (!Array.isArray(byteArray) || byteArray.length === 0) {
+    return 0n
+  }
+
+  let result = 0n
+  let multiplier = 1n
+
+  for (let i = 0; i < byteArray.length; i++) {
+    if (typeof byteArray[i] === 'number') {
+      result += BigInt(byteArray[i]) * multiplier
+      multiplier *= 256n
+    }
+  }
+
+  return result
+}
+
+// ================================
+// COMPLETE TVL SERVICE CLASS
 // ================================
 
 export class TVLAPRService {
   private static priceCache = new Map<string, TokenPrice>()
   private static lpInfoCache = new Map<string, LPTokenInfo>()
   private static cacheExpiry = 5 * 60 * 1000 // 5 minutes
+  private static currentAccount: { address: string } | null = null
+  
+  // Reduced logging - only show important messages
   private static logger = {
     info: (msg: string, data?: any) => console.log(`[TVL-APR] ${msg}`, data || ''),
     error: (msg: string, error?: any) => console.error(`[TVL-APR ERROR] ${msg}`, error || ''),
     warn: (msg: string, data?: any) => console.warn(`[TVL-APR WARN] ${msg}`, data || ''),
-    debug: (msg: string, data?: any) => console.debug(`[TVL-APR DEBUG] ${msg}`, data || '')
+    debug: (msg: string, data?: any) => {
+      // Only show critical debug messages
+      if (msg.includes('CRITICAL') || msg.includes('SUCCESS') || msg.includes('TVL')) {
+        console.debug(`[TVL-APR DEBUG] ${msg}`, data || '')
+      }
+    }
   }
 
   // ================================
-  // PUBLIC METHODS
+  // MAIN ENTRY POINTS
   // ================================
 
   /**
-   * Get complete system TVL data
+   * Method to be called from React component with account
+   */
+  static async getSystemTVLWithAccount(account: { address: string }): Promise<SystemTVL> {
+    // Store account globally for use in other methods
+    this.currentAccount = account
+    return await this.getSystemTVL()
+  }
+
+  /**
+   * Main system TVL calculation
    */
   static async getSystemTVL(): Promise<SystemTVL> {
     const startTime = Date.now()
-    this.logger.info('Starting system TVL calculation (farm pools only)')
+    this.logger.info('Starting system TVL calculation')
 
     const errors: string[] = []
     const warnings: string[] = []
@@ -131,19 +208,27 @@ export class TVLAPRService {
     let poolsProcessed = 0
 
     try {
-      // Step 1: Discover farm pools ONLY (much more efficient)
-      const farmPools = await this.discoverFarmPools()
+      // Step 1: Discover farm pools using working pattern
+      this.logger.info('Discovering farm pools...')
+      const farmPools = await this.discoverFarmPoolsFixed()
       this.logger.info(`Discovered ${farmPools.length} farm pools`)
 
-      // Step 2: Update prices for tokens used in farm pools only
+      if (farmPools.length === 0) {
+        warnings.push('No active farm pools found')
+      }
+
+      // Step 2: Update prices
+      this.logger.info('Updating token prices...')
       pricesUpdated = await this.updatePricesForFarmPools(farmPools)
-      this.logger.info(`Updated ${pricesUpdated} token prices for farm pools`)
+      this.logger.info(`Updated ${pricesUpdated} token prices`)
 
       // Step 3: Calculate farm TVL
+      this.logger.info('Calculating farm TVL...')
       const farmTVL = await this.calculateFarmTVLFromPools(farmPools)
       poolsProcessed = farmPools.length
 
       // Step 4: Calculate locker TVL
+      this.logger.info('Calculating locker TVL...')
       const lockerTVL = await this.calculateLockerTVL()
 
       // Step 5: Calculate system totals
@@ -185,37 +270,45 @@ export class TVLAPRService {
   }
 
   // ================================
-  // FARM POOL DISCOVERY (EFFICIENT)
+  // FARM POOL DISCOVERY (USING YOUR WORKING PATTERN)
   // ================================
 
-  /**
-   * Discover only farm pools using event-based approach
-   */
-  static async discoverFarmPools(): Promise<FarmPoolInfo[]> {
+  static async discoverFarmPoolsFixed(): Promise<FarmPoolInfo[]> {
     try {
-      this.logger.info('Discovering farm pools using event-based approach')
+      this.logger.info('Using event-based pool discovery')
 
-      // Use existing EventBasedPoolService to get farm pools
-      const { pools, farmData } = await EventBasedPoolService.getAllPools()
+      const { pools } = await EventBasedPoolService.getAllPools()
+      this.logger.info(`Found ${pools.length} pools from events`)
       
       const farmPools: FarmPoolInfo[] = []
       
+      // Use current account or fallback to dummy address
+      const senderAddress = this.currentAccount?.address || 
+        '0x0000000000000000000000000000000000000000000000000000000000000000'
+      
       for (const pool of pools) {
         try {
-          // Get current pool info from blockchain
-          const poolInfo = await this.getFarmPoolInfo(pool.typeName, pool.type)
+          // ✅ FIXED: Use your working pattern exactly
+          const poolInfo = await this.getFarmPoolInfoWorking(pool.typeName, senderAddress)
           
-          if (poolInfo && poolInfo.totalStaked !== '0') {
+          if (poolInfo && poolInfo.totalStakedBigInt && poolInfo.totalStakedBigInt > 0n) {
             farmPools.push({
               poolId: pool.id,
               poolName: pool.name,
               poolType: pool.type as 'LP' | 'Single',
               tokenType: pool.typeName,
-              totalStaked: poolInfo.totalStaked,
+              totalStaked: poolInfo.totalStakedBigInt.toString(),
               allocationPoints: pool.allocationPoints,
-              isActive: pool.isActive,
-              pairId: pool.type === 'LP' ? await this.findPairIdForLPPool(pool.typeName) : undefined
+              isActive: poolInfo.active || true,
+              pairId: pool.type === 'LP' ? await this.findPairIdWorking(pool.typeName, senderAddress) : undefined
             })
+            
+            this.logger.debug(`SUCCESS: Processed pool ${pool.name}`, {
+              totalStaked: poolInfo.totalStakedBigInt.toString(),
+              active: poolInfo.active
+            })
+          } else {
+            this.logger.debug(`Skipped pool ${pool.name}: No stake or inactive`)
           }
         } catch (error) {
           this.logger.error(`Error processing pool ${pool.name}`, error)
@@ -231,77 +324,68 @@ export class TVLAPRService {
     }
   }
 
-  /**
-   * Get farm pool info from blockchain
-   */
-  static async getFarmPoolInfo(poolType: string, type: 'LP' | 'Single'): Promise<{
-    totalStaked: string
-    isActive: boolean
+  // ================================
+  // POOL INFO USING YOUR WORKING PATTERN
+  // ================================
+
+  static async getFarmPoolInfoWorking(typeString: string, senderAddress: string): Promise<{
+    totalStakedBigInt?: bigint
+    active?: boolean
   } | null> {
     try {
-      // Call get_pool_info function from farm contract
-      const result = await suiClient.devInspectTransactionBlock({
-        transactionBlock: {
-          version: 1,
-          sender: '0x0000000000000000000000000000000000000000000000000000000000000000',
-          expiration: { None: null },
-          gasData: {
-            payment: [],
-            owner: '0x0000000000000000000000000000000000000000000000000000000000000000',
-            price: '1000',
-            budget: '10000000'
-          },
-          inputs: [
-            {
-              type: 'object',
-              objectType: 'immOrOwnedObject',
-              objectId: CONSTANTS.FARM_ID,
-              version: '1',
-              digest: ''
-            }
-          ],
-          commands: [
-            {
-              MoveCall: {
-                package: CONSTANTS.PACKAGE_ID,
-                module: 'farm',
-                function: 'get_pool_info',
-                type_arguments: [poolType],
-                arguments: [{ Input: 0 }]
-              }
-            }
-          ]
-        },
-        sender: '0x0000000000000000000000000000000000000000000000000000000000000000'
+      // ✅ EXACT COPY of your working pattern
+      const tx = new Transaction()
+      tx.moveCall({
+        target: `${CONSTANTS.PACKAGE_ID}::farm::get_pool_info`,
+        arguments: [tx.object(CONSTANTS.FARM_ID)],  // ✅ arguments first
+        typeArguments: [typeString]  // ✅ typeArguments second
       })
-
+      
+      const result = await suiClient.devInspectTransactionBlock({
+        transactionBlock: tx,
+        sender: senderAddress  // ✅ real sender address
+      })
+      
       if (result?.results?.[0]?.returnValues) {
         const rawValues = result.results[0].returnValues
-        const parsedValues = rawValues.map(this.parseBlockchainValue)
+        const parsedValues = rawValues.map(parseBlockchainValue)  // ✅ external function
         
-        const [totalStaked, , , active] = parsedValues
+        const details: any = {}
         
-        return {
-          totalStaked: totalStaked?.toString() || '0',
-          isActive: Boolean(active)
+        // Extract total staked amount which is typically the first value
+        if (parsedValues.length > 0) {
+          details.totalStakedBigInt = parsedValues[0]
+          // Extract active status if available (typically the 4th value)
+          if (parsedValues.length > 3) {
+            details.active = Boolean(parsedValues[3])
+          }
         }
+        
+        this.logger.debug('CRITICAL: Combined pool details', {
+          typeString: typeString.substring(0, 50) + '...',
+          totalStakedBigInt: typeof details.totalStakedBigInt === 'bigint' 
+            ? details.totalStakedBigInt.toString() 
+            : details.totalStakedBigInt,
+          active: details.active
+        })
+        
+        return details
       }
 
       return null
     } catch (error) {
-      this.logger.error(`Error fetching pool info for ${poolType}`, error)
+      this.logger.error(`CRITICAL: Error fetching pool info for ${typeString}`, error)
       return null
     }
   }
 
-  /**
-   * Find pair ID for LP pool by extracting token types and querying factory
-   */
-  static async findPairIdForLPPool(lpTokenType: string): Promise<string | undefined> {
+  // ================================
+  // PAIR ID DISCOVERY USING WORKING PATTERN
+  // ================================
+
+  static async findPairIdWorking(lpTokenType: string, senderAddress: string): Promise<string | undefined> {
     try {
-      // Extract token types from LP token type string
-      // Format: address::pair::LPCoin<Token0, Token1>
-      const lpMatch = lpTokenType.match(/LPCoin<([^,]+),\s*([^>]+)>/);
+      const lpMatch = lpTokenType.match(/LPCoin<([^,]+),\s*([^>]+)>/)
       if (!lpMatch) {
         this.logger.warn(`Could not parse LP token type: ${lpTokenType}`)
         return undefined
@@ -311,49 +395,24 @@ export class TVLAPRService {
       const token0 = token0Raw.trim()
       const token1 = token1Raw.trim()
 
-      // Sort tokens using factory's sort_tokens function
       const [sortedToken0, sortedToken1] = this.sortTokenTypes(token0, token1)
 
-      // Query factory for pair
+      // ✅ Use your working pattern
+      const tx = new Transaction()
+      tx.moveCall({
+        target: `${CONSTANTS.PACKAGE_ID}::factory::get_pair`,
+        arguments: [tx.object(CONSTANTS.FACTORY_ID)],  // ✅ arguments first
+        typeArguments: [sortedToken0, sortedToken1]  // ✅ typeArguments second
+      })
+
       const result = await suiClient.devInspectTransactionBlock({
-        transactionBlock: {
-          version: 1,
-          sender: '0x0000000000000000000000000000000000000000000000000000000000000000',
-          expiration: { None: null },
-          gasData: {
-            payment: [],
-            owner: '0x0000000000000000000000000000000000000000000000000000000000000000',
-            price: '1000',
-            budget: '10000000'
-          },
-          inputs: [
-            {
-              type: 'object',
-              objectType: 'immOrOwnedObject',
-              objectId: CONSTANTS.FACTORY_ID,
-              version: '1',
-              digest: ''
-            }
-          ],
-          commands: [
-            {
-              MoveCall: {
-                package: CONSTANTS.PACKAGE_ID,
-                module: 'factory',
-                function: 'get_pair',
-                type_arguments: [sortedToken0, sortedToken1],
-                arguments: [{ Input: 0 }]
-              }
-            }
-          ]
-        },
-        sender: '0x0000000000000000000000000000000000000000000000000000000000000000'
+        transactionBlock: tx,
+        sender: senderAddress  // ✅ real sender
       })
 
       if (result?.results?.[0]?.returnValues?.[0]?.[0]) {
         const pairIdBytes = result.results[0].returnValues[0][0]
         if (Array.isArray(pairIdBytes) && pairIdBytes.length > 0) {
-          // Convert byte array to hex address
           const pairId = `0x${Array.from(pairIdBytes.slice(1))
             .map(b => b.toString(16).padStart(2, '0'))
             .join('')}`
@@ -373,12 +432,9 @@ export class TVLAPRService {
   }
 
   // ================================
-  // PRICE DISCOVERY (TARGETED)
+  // PRICE DISCOVERY METHODS
   // ================================
 
-  /**
-   * Update prices only for tokens used in farm pools
-   */
   static async updatePricesForFarmPools(farmPools: FarmPoolInfo[]): Promise<number> {
     let pricesUpdated = 0
     const uniqueTokens = new Set<string>()
@@ -388,7 +444,6 @@ export class TVLAPRService {
       if (pool.poolType === 'Single') {
         uniqueTokens.add(pool.tokenType)
       } else if (pool.poolType === 'LP' && pool.pairId) {
-        // Extract token types from LP token
         const tokens = this.extractTokensFromLPType(pool.tokenType)
         if (tokens) {
           uniqueTokens.add(tokens.token0)
@@ -443,9 +498,6 @@ export class TVLAPRService {
     return pricesUpdated
   }
 
-  /**
-   * Get token price with fallback hierarchy
-   */
   static async getTokenPrice(symbol: string, tokenType?: string): Promise<TokenPrice> {
     const cacheKey = tokenType || symbol.toUpperCase()
     const cached = this.priceCache.get(cacheKey)
@@ -520,27 +572,25 @@ export class TVLAPRService {
     }
   }
 
-  /**
-   * Get price from DEX pairs (only checking farm pool pairs)
-   */
   static async getPriceFromDEX(symbol: string, tokenType?: string): Promise<number> {
     try {
+      const senderAddress = this.currentAccount?.address || 
+        '0x0000000000000000000000000000000000000000000000000000000000000000'
+
       // For VICTORY token, look for VICTORY/SUI pair in farm pools
       if (symbol === 'VICTORY' || this.isVictoryToken(tokenType || '')) {
         const suiPrice = await this.getPriceFromCoinGecko('SUI')
         if (suiPrice === 0) return 0
 
-        // Try to find VICTORY/SUI pair from farm pools
-        const victoryInSui = await this.getVictoryToSuiPrice()
+        const victoryInSui = await this.getVictoryToSuiPriceWorking(senderAddress)
         return victoryInSui * suiPrice
       }
 
       // For SUI, check if we have SUI/USDC pair in farm pools
       if (symbol === 'SUI' || this.isSUIToken(tokenType || '')) {
-        return await this.getSuiPriceFromUSDCPair()
+        return await this.getSuiPriceFromUSDCPairWorking(senderAddress)
       }
 
-      // For other tokens, try to find pairs with SUI or major stablecoins
       return 0
     } catch (error) {
       this.logger.error(`Error getting DEX price for ${symbol}`, error)
@@ -548,51 +598,24 @@ export class TVLAPRService {
     }
   }
 
-  /**
-   * Get VICTORY price in SUI by directly querying VICTORY/SUI pair
-   */
-  static async getVictoryToSuiPrice(): Promise<number> {
+  static async getVictoryToSuiPriceWorking(senderAddress: string): Promise<number> {
     try {
       const victoryType = CONSTANTS.VICTORY_TOKEN.TYPE
       const suiType = '0x2::sui::SUI'
       
-      // Sort tokens according to factory's sort_tokens function
       const [sortedToken0, sortedToken1] = this.sortTokenTypes(victoryType, suiType)
       
-      // Query factory for VICTORY/SUI pair
+      // ✅ Use working pattern
+      const tx = new Transaction()
+      tx.moveCall({
+        target: `${CONSTANTS.PACKAGE_ID}::factory::get_pair`,
+        arguments: [tx.object(CONSTANTS.FACTORY_ID)],
+        typeArguments: [sortedToken0, sortedToken1]
+      })
+
       const result = await suiClient.devInspectTransactionBlock({
-        transactionBlock: {
-          version: 1,
-          sender: '0x0000000000000000000000000000000000000000000000000000000000000000',
-          expiration: { None: null },
-          gasData: {
-            payment: [],
-            owner: '0x0000000000000000000000000000000000000000000000000000000000000000',
-            price: '1000',
-            budget: '10000000'
-          },
-          inputs: [
-            {
-              type: 'object',
-              objectType: 'immOrOwnedObject',
-              objectId: CONSTANTS.FACTORY_ID,
-              version: '1',
-              digest: ''
-            }
-          ],
-          commands: [
-            {
-              MoveCall: {
-                package: CONSTANTS.PACKAGE_ID,
-                module: 'factory',
-                function: 'get_pair',
-                type_arguments: [sortedToken0, sortedToken1],
-                arguments: [{ Input: 0 }]
-              }
-            }
-          ]
-        },
-        sender: '0x0000000000000000000000000000000000000000000000000000000000000000'
+        transactionBlock: tx,
+        sender: senderAddress
       })
 
       if (result?.results?.[0]?.returnValues?.[0]?.[0]) {
@@ -614,7 +637,6 @@ export class TVLAPRService {
             const reserve1 = BigInt(fields.reserve1 || '0')
 
             if (reserve0 > 0n && reserve1 > 0n) {
-              // Determine which reserve is VICTORY and which is SUI
               const isVictoryToken0 = sortedToken0 === victoryType
               
               let victoryReserve: bigint
@@ -629,8 +651,6 @@ export class TVLAPRService {
               }
 
               // Calculate VICTORY price in SUI
-              // Price = SUI_Reserve / VICTORY_Reserve (accounting for decimals)
-              // VICTORY has 6 decimals, SUI has 9 decimals
               const victoryInSui = (Number(suiReserve) / Math.pow(10, 9)) / 
                                   (Number(victoryReserve) / Math.pow(10, 6))
               
@@ -650,56 +670,29 @@ export class TVLAPRService {
     }
   }
 
-  /**
-   * Get SUI price from SUI/USDC pair by directly querying the pair
-   */
-  static async getSuiPriceFromUSDCPair(): Promise<number> {
+  static async getSuiPriceFromUSDCPairWorking(senderAddress: string): Promise<number> {
     try {
       const suiType = '0x2::sui::SUI'
-      // Common USDC token types on Sui (you may need to adjust this)
       const usdcTypes = [
-        '0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN', // Common USDC type
-        '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC' // Another common USDC type
+        '0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN',
+        '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC'
       ]
 
       for (const usdcType of usdcTypes) {
         try {
           const [sortedToken0, sortedToken1] = this.sortTokenTypes(suiType, usdcType)
           
-          // Query factory for SUI/USDC pair
+          // ✅ Use working pattern
+          const tx = new Transaction()
+          tx.moveCall({
+            target: `${CONSTANTS.PACKAGE_ID}::factory::get_pair`,
+            arguments: [tx.object(CONSTANTS.FACTORY_ID)],
+            typeArguments: [sortedToken0, sortedToken1]
+          })
+
           const result = await suiClient.devInspectTransactionBlock({
-            transactionBlock: {
-              version: 1,
-              sender: '0x0000000000000000000000000000000000000000000000000000000000000000',
-              expiration: { None: null },
-              gasData: {
-                payment: [],
-                owner: '0x0000000000000000000000000000000000000000000000000000000000000000',
-                price: '1000',
-                budget: '10000000'
-              },
-              inputs: [
-                {
-                  type: 'object',
-                  objectType: 'immOrOwnedObject',
-                  objectId: CONSTANTS.FACTORY_ID,
-                  version: '1',
-                  digest: ''
-                }
-              ],
-              commands: [
-                {
-                  MoveCall: {
-                    package: CONSTANTS.PACKAGE_ID,
-                    module: 'factory',
-                    function: 'get_pair',
-                    type_arguments: [sortedToken0, sortedToken1],
-                    arguments: [{ Input: 0 }]
-                  }
-                }
-              ]
-            },
-            sender: '0x0000000000000000000000000000000000000000000000000000000000000000'
+            transactionBlock: tx,
+            sender: senderAddress
           })
 
           if (result?.results?.[0]?.returnValues?.[0]?.[0]) {
@@ -721,7 +714,6 @@ export class TVLAPRService {
                 const reserve1 = BigInt(fields.reserve1 || '0')
 
                 if (reserve0 > 0n && reserve1 > 0n) {
-                  // Determine which reserve is SUI and which is USDC
                   const isSuiToken0 = sortedToken0 === suiType
                   
                   let suiReserve: bigint
@@ -736,8 +728,6 @@ export class TVLAPRService {
                   }
 
                   // Calculate SUI price in USD
-                  // Price = USDC_Reserve / SUI_Reserve (accounting for decimals)
-                  // Both SUI and USDC typically have 6-9 decimals, assume 6 for USDC, 9 for SUI
                   const suiPriceUSD = (Number(usdcReserve) / Math.pow(10, 6)) / 
                                      (Number(suiReserve) / Math.pow(10, 9))
                   
@@ -762,9 +752,6 @@ export class TVLAPRService {
     }
   }
 
-  /**
-   * Get price from CoinGecko API
-   */
   static async getPriceFromCoinGecko(symbol: string): Promise<number> {
     try {
       const coinGeckoMap: Record<string, string> = {
@@ -782,7 +769,7 @@ export class TVLAPRService {
         `https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=usd`,
         {
           headers: { 'Accept': 'application/json' },
-          signal: AbortSignal.timeout(10000) // 10 second timeout
+          signal: AbortSignal.timeout(10000)
         }
       )
 
@@ -799,12 +786,9 @@ export class TVLAPRService {
     }
   }
 
-  /**
-   * Hardcoded fallback prices
-   */
   static getHardcodedPrice(symbol: string): number {
     const prices: Record<string, number> = {
-      'SUI': 1.50,
+      'SUI': 3.81,  // Use current market price
       'VICTORY': 0.05,
       'USDC': 1.00,
       'USDT': 1.00,
@@ -818,9 +802,6 @@ export class TVLAPRService {
   // TVL CALCULATION METHODS
   // ================================
 
-  /**
-   * Calculate farm TVL from discovered pools
-   */
   static async calculateFarmTVLFromPools(farmPools: FarmPoolInfo[]): Promise<SystemTVL['farmTVL']> {
     const lpPools: PoolTVLData[] = []
     const singlePools: PoolTVLData[] = []
@@ -829,10 +810,16 @@ export class TVLAPRService {
       try {
         if (pool.poolType === 'LP') {
           const lpTVL = await this.calculateLPPoolTVL(pool)
-          if (lpTVL) lpPools.push(lpTVL)
+          if (lpTVL) {
+            lpPools.push(lpTVL)
+            this.logger.debug(`LP Pool TVL: ${pool.poolName} = ${lpTVL.tvlUSD.toLocaleString()}`)
+          }
         } else {
           const singleTVL = await this.calculateSinglePoolTVL(pool)
-          if (singleTVL) singlePools.push(singleTVL)
+          if (singleTVL) {
+            singlePools.push(singleTVL)
+            this.logger.debug(`Single Pool TVL: ${pool.poolName} = ${singleTVL.tvlUSD.toLocaleString()}`)
+          }
         }
       } catch (error) {
         this.logger.error(`Error calculating TVL for pool ${pool.poolName}`, error)
@@ -846,9 +833,9 @@ export class TVLAPRService {
     this.logger.info('Farm TVL calculated', {
       lpPools: lpPools.length,
       singlePools: singlePools.length,
-      totalLPTVL: `$${totalLPTVL.toLocaleString()}`,
-      totalSingleTVL: `$${totalSingleTVL.toLocaleString()}`,
-      totalFarmTVL: `$${totalFarmTVL.toLocaleString()}`
+      totalLPTVL: `${totalLPTVL.toLocaleString()}`,
+      totalSingleTVL: `${totalSingleTVL.toLocaleString()}`,
+      totalFarmTVL: `${totalFarmTVL.toLocaleString()}`
     })
 
     return {
@@ -860,9 +847,6 @@ export class TVLAPRService {
     }
   }
 
-  /**
-   * Calculate LP pool TVL
-   */
   static async calculateLPPoolTVL(pool: FarmPoolInfo): Promise<PoolTVLData | null> {
     try {
       if (!pool.pairId) {
@@ -903,9 +887,6 @@ export class TVLAPRService {
     }
   }
 
-  /**
-   * Calculate single asset pool TVL
-   */
   static async calculateSinglePoolTVL(pool: FarmPoolInfo): Promise<PoolTVLData | null> {
     try {
       const symbol = this.extractTokenSymbol(pool.tokenType)
@@ -939,9 +920,6 @@ export class TVLAPRService {
     }
   }
 
-  /**
-   * Get LP token information and calculate price
-   */
   static async getLPTokenInfo(pairId: string, lpTokenType: string): Promise<LPTokenInfo | null> {
     const cacheKey = `${pairId}_${lpTokenType}`
     const cached = this.lpInfoCache.get(cacheKey)
@@ -1006,7 +984,7 @@ export class TVLAPRService {
       }
 
       this.lpInfoCache.set(cacheKey, lpInfo)
-      this.logger.debug(`Calculated LP token price for ${token0Symbol}/${token1Symbol}: $${lpTokenPrice}`)
+      this.logger.debug(`Calculated LP token price for ${token0Symbol}/${token1Symbol}: ${lpTokenPrice}`)
 
       return lpInfo
 
@@ -1016,9 +994,6 @@ export class TVLAPRService {
     }
   }
 
-  /**
-   * Calculate locker TVL using TokenLockerService
-   */
   static async calculateLockerTVL(): Promise<SystemTVL['lockerTVL']> {
     try {
       this.logger.info('Calculating locker TVL')
@@ -1106,12 +1081,9 @@ export class TVLAPRService {
   }
 
   // ================================
-  // UTILITY METHODS
+  // CALCULATION HELPER METHODS
   // ================================
 
-  /**
-   * Calculate pool APR (simplified)
-   */
   static calculatePoolAPR(allocationPoints: number, tvlUSD: number): number {
     if (tvlUSD === 0) return 0
     
@@ -1128,9 +1100,6 @@ export class TVLAPRService {
     return Math.min(baseAPR * allocationMultiplier, 500) // Cap at 500%
   }
 
-  /**
-   * Calculate locker APR (simplified)
-   */
   static calculateLockerAPR(allocationBasisPoints: number, lockPeriodDays: number): number {
     // Longer locks get higher APR
     const periodMultiplier = lockPeriodDays / 365 // Annualized
@@ -1140,9 +1109,10 @@ export class TVLAPRService {
     return Math.min(allocationPercentage * periodMultiplier * 10, 200) // Cap at 200%
   }
 
-  /**
-   * Sort token types according to factory's sorting logic
-   */
+  // ================================
+  // UTILITY METHODS
+  // ================================
+
   static sortTokenTypes(token0: string, token1: string): [string, string] {
     if (token0 === token1) {
       throw new Error('Identical tokens')
@@ -1152,9 +1122,6 @@ export class TVLAPRService {
     return token0 < token1 ? [token0, token1] : [token1, token0]
   }
 
-  /**
-   * Extract token types from LP token type string
-   */
   static extractTokensFromLPType(lpTokenType: string): { token0: string; token1: string } | null {
     const lpMatch = lpTokenType.match(/LPCoin<([^,]+),\s*([^>]+)>/)
     if (!lpMatch) return null
@@ -1168,9 +1135,6 @@ export class TVLAPRService {
     return { token0: sortedToken0, token1: sortedToken1 }
   }
 
-  /**
-   * Extract token symbol from token type string
-   */
   static extractTokenSymbol(tokenType: string): string {
     // Handle special cases
     if (tokenType.includes('::sui::SUI')) return 'SUI'
@@ -1185,103 +1149,25 @@ export class TVLAPRService {
     return 'UNKNOWN'
   }
 
-  /**
-   * Check if token is SUI
-   */
   static isSUIToken(tokenType: string): boolean {
     return tokenType.includes('::sui::SUI') || tokenType === '0x2::sui::SUI'
   }
 
-  /**
-   * Check if token is VICTORY
-   */
   static isVictoryToken(tokenType: string): boolean {
     return tokenType.includes('::victory_token::VICTORY_TOKEN') || 
            tokenType === CONSTANTS.VICTORY_TOKEN.TYPE
-  }
-
-  /**
-   * Parse blockchain values (from EventBasedPoolService)
-   */
-  static parseBlockchainValue(value: any): any {
-    try {
-      if (Array.isArray(value) && value.length === 2 && typeof value[1] === 'string') {
-        const [dataArray, typeStr] = value
-
-        if (typeStr.startsWith('u') && Array.isArray(dataArray)) {
-          return this.parseU256ByteArray(dataArray)
-        }
-
-        if (typeStr === 'bool' && Array.isArray(dataArray)) {
-          return dataArray.length === 1 ? dataArray[0] === 1 : false
-        }
-      }
-
-      if (typeof value === 'number' || typeof value === 'bigint') {
-        return value
-      }
-
-      if (typeof value === 'boolean') {
-        return value
-      }
-
-      console.warn('Could not parse blockchain value:', value)
-      return value
-    } catch (error) {
-      console.error('Error parsing blockchain value:', error)
-      return 0
-    }
-  }
-
-  /**
-   * Parse u256 byte array to BigInt (from EventBasedPoolService)
-   */
-  static parseU256ByteArray(byteArray: number[]): bigint {
-    if (!Array.isArray(byteArray) || byteArray.length === 0) {
-      return 0n
-    }
-
-    let result = 0n
-    let multiplier = 1n
-
-    for (let i = 0; i < byteArray.length; i++) {
-      if (typeof byteArray[i] === 'number') {
-        result += BigInt(byteArray[i]) * multiplier
-        multiplier *= 256n
-      }
-    }
-
-    return result
-  }
-
-  /**
-   * Extract token type from event data
-   */
-  static extractTokenTypeFromEvent(tokenData: any): string {
-    if (typeof tokenData === 'string') {
-      return tokenData
-    } else if (tokenData && typeof tokenData === 'object' && tokenData.name) {
-      return tokenData.name
-    }
-    return ''
   }
 
   // ================================
   // CACHE MANAGEMENT
   // ================================
 
-  /**
-   * Clear all caches
-   */
   static clearCache(): void {
     this.priceCache.clear()
     this.lpInfoCache.clear()
     this.logger.info('All caches cleared')
   }
 
-  /**
-   * Get cache statistics
-   */
   static getCacheStats(): {
     priceCache: number
     lpInfoCache: number
@@ -1294,11 +1180,130 @@ export class TVLAPRService {
     }
   }
 
-  /**
-   * Set cache expiry time
-   */
   static setCacheExpiry(milliseconds: number): void {
     this.cacheExpiry = milliseconds
     this.logger.info(`Cache expiry set to ${milliseconds}ms`)
+  }
+
+  // ================================
+  // DEBUG AND TESTING METHODS
+  // ================================
+
+  /**
+   * Test connection and basic functionality
+   */
+  static async testConnection(): Promise<{
+    status: string
+    suiClient: boolean
+    eventService: boolean
+    tokenLocker: boolean
+    priceData: any
+  }> {
+    try {
+      // Test Sui client
+      const suiClientTest = await suiClient.getLatestSuiSystemState()
+      
+      // Test EventBasedPoolService
+      const { pools } = await EventBasedPoolService.getAllPools()
+      
+      // Test TokenLockerService
+      const lockerConfig = await TokenLockerService.fetchTokenLockerConfig()
+      
+      // Test price fetching
+      const suiPrice = await this.getPriceFromCoinGecko('SUI')
+      
+      return {
+        status: 'SUCCESS',
+        suiClient: !!suiClientTest,
+        eventService: pools.length > 0,
+        tokenLocker: !!lockerConfig,
+        priceData: {
+          suiPrice,
+          cacheSize: this.priceCache.size
+        }
+      }
+    } catch (error) {
+      this.logger.error('Connection test failed', error)
+      return {
+        status: 'FAILED',
+        suiClient: false,
+        eventService: false,
+        tokenLocker: false,
+        priceData: null
+      }
+    }
+  }
+
+  /**
+   * Get detailed debug information
+   */
+  static getDebugInfo(): {
+    cacheStats: any
+    constants: any
+    currentAccount: any
+  } {
+    return {
+      cacheStats: this.getCacheStats(),
+      constants: {
+        packageId: CONSTANTS.PACKAGE_ID,
+        farmId: CONSTANTS.FARM_ID,
+        factoryId: CONSTANTS.FACTORY_ID,
+        victoryTokenType: CONSTANTS.VICTORY_TOKEN.TYPE
+      },
+      currentAccount: this.currentAccount
+    }
+  }
+
+  /**
+   * Manual price update for specific token
+   */
+  static async updateTokenPrice(symbol: string, tokenType?: string): Promise<TokenPrice> {
+    const cacheKey = tokenType || symbol.toUpperCase()
+    this.priceCache.delete(cacheKey) // Clear cache first
+    return await this.getTokenPrice(symbol, tokenType)
+  }
+
+  /**
+   * Get price discovery details for debugging
+   */
+  static async debugPriceDiscovery(symbol: string, tokenType?: string): Promise<{
+    symbol: string
+    tokenType: string
+    dexPrice: number
+    coinGeckoPrice: number
+    hardcodedPrice: number
+    finalPrice: TokenPrice
+    errors: string[]
+  }> {
+    const errors: string[] = []
+    let dexPrice = 0
+    let coinGeckoPrice = 0
+    let hardcodedPrice = 0
+
+    try {
+      dexPrice = await this.getPriceFromDEX(symbol, tokenType)
+    } catch (error) {
+      errors.push(`DEX: ${String(error)}`)
+    }
+
+    try {
+      coinGeckoPrice = await this.getPriceFromCoinGecko(symbol)
+    } catch (error) {
+      errors.push(`CoinGecko: ${String(error)}`)
+    }
+
+    hardcodedPrice = this.getHardcodedPrice(symbol)
+
+    const finalPrice = await this.getTokenPrice(symbol, tokenType)
+
+    return {
+      symbol,
+      tokenType: tokenType || 'unknown',
+      dexPrice,
+      coinGeckoPrice,
+      hardcodedPrice,
+      finalPrice,
+      errors
+    }
   }
 }
