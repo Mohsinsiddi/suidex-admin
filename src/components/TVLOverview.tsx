@@ -428,25 +428,6 @@ export default function EnhancedOverviewTab() {
         </div>
       </div>
 
-      {/* Quick Actions */}
-      <div className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/30 rounded-xl p-6">
-        <h3 className="text-lg font-semibold text-white mb-4">Quick Actions</h3>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <button className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white font-semibold px-4 py-3 rounded-lg transition-all duration-200">
-            Create New Pool
-          </button>
-          <button className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-semibold px-4 py-3 rounded-lg transition-all duration-200">
-            Update Allocations
-          </button>
-          <button className="bg-gradient-to-r from-orange-600 to-yellow-600 hover:from-orange-700 hover:to-yellow-700 text-white font-semibold px-4 py-3 rounded-lg transition-all duration-200">
-            Refresh Prices
-          </button>
-          <button className="bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white font-semibold px-4 py-3 rounded-lg transition-all duration-200">
-            Emergency Pause
-          </button>
-        </div>
-      </div>
-
       {/* System Metadata */}
       {systemTVL.metadata.errors.length > 0 || systemTVL.metadata.warnings.length > 0 ? (
         <div className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/30 rounded-xl p-6">

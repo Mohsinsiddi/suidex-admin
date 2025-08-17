@@ -1022,71 +1022,66 @@ export class TVLAPRService {
 
   static async calculateLockerTVL(): Promise<SystemTVL['lockerTVL']> {
     try {
-      this.logger.info('Calculating locker TVL')
+      this.logger.info('🔒 Calculating locker TVL...')
 
       // Get locker config from TokenLockerService
       const lockerConfig = await TokenLockerService.fetchTokenLockerConfig()
+      this.logger.info('✅ Locker config received')
       
-      // Get VICTORY price
+      // Get VICTORY price - simplified to just USD price
+      this.logger.info('💰 Fetching VICTORY price...')
       const victoryPrice = await this.getTokenPrice('VICTORY', CONSTANTS.VICTORY_TOKEN.TYPE)
+      this.logger.info(`💰 VICTORY price: ${victoryPrice.usdPrice} (source: ${victoryPrice.source})`)
 
-      // Calculate TVL for each lock period
-      const pools: LockerTVLData[] = []
-      const lockPeriods = [
-        { period: 7, name: '1 Week', allocation: lockerConfig.allocations.victory.week },
-        { period: 90, name: '3 Months', allocation: lockerConfig.allocations.victory.threeMonth },
-        { period: 365, name: '1 Year', allocation: lockerConfig.allocations.victory.year },
-        { period: 1095, name: '3 Years', allocation: lockerConfig.allocations.victory.threeYear }
-      ]
-
-      const poolStats = lockerConfig.poolStats
-      const lockedAmounts = [
-        poolStats.weekLocked,
-        poolStats.threeMonthLocked,
-        poolStats.yearLocked,
-        poolStats.threeYearLocked
-      ]
-
-      for (let i = 0; i < lockPeriods.length; i++) {
-        const lockPeriod = lockPeriods[i]
-        const lockedAmount = lockedAmounts[i]
-        
-        // Convert from 6 decimal Victory tokens to float
-        const totalLockedFormatted = parseFloat(lockedAmount) / Math.pow(10, 6)
-        const tvlUSD = totalLockedFormatted * victoryPrice.usdPrice
-
-        // Calculate estimated APR (simplified - you can make this more sophisticated)
-        const estimatedAPR = this.calculateLockerAPR(lockPeriod.allocation, lockPeriod.period)
-
-        pools.push({
-          lockPeriod: lockPeriod.period,
-          lockPeriodName: lockPeriod.name,
-          totalLocked: lockedAmount,
-          totalLockedFormatted,
-          victoryPrice: victoryPrice.usdPrice,
-          tvlUSD,
-          estimatedAPR,
-          allocationPercentage: lockPeriod.allocation / 100 // Convert basis points to percentage
-        })
-      }
-
-      // Calculate SUI rewards pool value
-      const suiRewardsBalance = parseFloat(lockerConfig.vaultBalances.suiRewards) / Math.pow(10, 9)
+      // Get SUI price for rewards pool
       const suiPrice = await this.getTokenPrice('SUI', '0x2::sui::SUI')
-      const suiRewardsPool = suiRewardsBalance * suiPrice.usdPrice
+      this.logger.info(`💰 SUI price: ${suiPrice.usdPrice} (source: ${suiPrice.source})`)
 
-      // Calculate Victory rewards pool value
-      const victoryRewardsBalance = parseFloat(lockerConfig.vaultBalances.victoryRewards) / Math.pow(10, 6)
-      const victoryRewardsPool = victoryRewardsBalance * victoryPrice.usdPrice
+      // ✅ SIMPLIFIED: Direct calculation from vault balances
+      const vaultBalances = lockerConfig.vaultBalances || {}
+      
+      // SUI rewards pool (1 SUI = 1,000,000,000 in raw)
+      const suiRewardsRaw = vaultBalances.suiRewards || '0'
+      const suiRewardsFormatted = parseFloat(suiRewardsRaw) / 1e9  // 9 decimals
+      const suiRewardsPool = suiRewardsFormatted * suiPrice.usdPrice
+      
+      this.logger.info(`🔷 SUI Rewards: ${suiRewardsRaw} raw = ${suiRewardsFormatted} SUI = ${suiRewardsPool}`)
 
-      const totalLockerTVL = pools.reduce((sum, pool) => sum + pool.tvlUSD, 0)
+      // Victory rewards pool (1,086,678,795,198 = 1,086,678.795198 VICTORY)
+      const victoryRewardsRaw = vaultBalances.victoryRewards || '0'
+      const victoryRewardsFormatted = parseFloat(victoryRewardsRaw) / 1e6  // 6 decimals  
+      const victoryRewardsPool = victoryRewardsFormatted * victoryPrice.usdPrice
+      
+      this.logger.info(`🏆 Victory Rewards: ${victoryRewardsRaw} raw = ${victoryRewardsFormatted} VICTORY = ${victoryRewardsPool}`)
 
-      this.logger.info('Locker TVL calculated', {
-        totalLockerTVL: `${totalLockerTVL.toLocaleString()}`,
-        suiRewardsPool: `${suiRewardsPool.toLocaleString()}`,
-        victoryRewardsPool: `${victoryRewardsPool.toLocaleString()}`,
-        pools: pools.length
-      })
+      // Locked tokens vault (18,600,590,903 = 18,600.590903 VICTORY)
+      const lockedTokensRaw = vaultBalances.lockedTokens || '0'
+      const lockedTokensFormatted = parseFloat(lockedTokensRaw) / 1e6  // 6 decimals
+      const lockedTokensTVL = lockedTokensFormatted * victoryPrice.usdPrice
+      
+      this.logger.info(`🔒 Locked Tokens: ${lockedTokensRaw} raw = ${lockedTokensFormatted} VICTORY = ${lockedTokensTVL}`)
+
+      // ✅ TOTAL CALCULATION
+      const totalLockerTVL = lockedTokensTVL + victoryRewardsPool  // Only count actual locked tokens
+      const totalRewardsPool = suiRewardsPool + victoryRewardsPool  // Separate rewards
+
+      this.logger.info(`📊 LOCKER TVL SUMMARY:`)
+      this.logger.info(`   • Locked Tokens TVL: ${lockedTokensTVL}`)
+      this.logger.info(`   • Victory Rewards Pool: ${victoryRewardsPool}`)
+      this.logger.info(`   • SUI Rewards Pool: ${suiRewardsPool}`)
+      this.logger.info(`   • TOTAL LOCKER TVL: ${totalLockerTVL}`)
+
+      // Create simplified pools array for now
+      const pools: LockerTVLData[] = [{
+        lockPeriod: 0,
+        lockPeriodName: 'All Locks Combined',
+        totalLocked: lockedTokensRaw,
+        totalLockedFormatted: lockedTokensFormatted,
+        victoryPrice: victoryPrice.usdPrice,
+        tvlUSD: lockedTokensTVL,
+        estimatedAPR: 0,
+        allocationPercentage: 0
+      }]
 
       return {
         pools,
@@ -1096,7 +1091,8 @@ export class TVLAPRService {
       }
 
     } catch (error) {
-      this.logger.error('Error calculating locker TVL', error)
+      this.logger.error('💥 CRITICAL: Error calculating locker TVL:', error)
+      
       return {
         pools: [],
         totalLockerTVL: 0,
@@ -1290,8 +1286,114 @@ export class TVLAPRService {
   }
 
   /**
-   * Debug pool discovery to see why we're missing 2 pools
+   * Debug locker TVL calculation specifically
    */
+  static async debugLockerTVL(): Promise<{
+    lockerConfig: any
+    victoryPrice: TokenPrice
+    suiPrice: TokenPrice
+    calculations: any[]
+    totalTVL: number
+    errors: string[]
+  }> {
+    const errors: string[] = []
+    
+    try {
+      console.log('🔒 DEBUGGING: Starting locker TVL debug...')
+      
+      // Step 1: Get locker config
+      const lockerConfig = await TokenLockerService.fetchTokenLockerConfig()
+      console.log('📋 DEBUGGING: Raw locker config:', lockerConfig)
+      
+      // Step 2: Get prices
+      const victoryPrice = await this.getTokenPrice('VICTORY', CONSTANTS.VICTORY_TOKEN.TYPE)
+      const suiPrice = await this.getTokenPrice('SUI', '0x2::sui::SUI')
+      
+      console.log('💰 DEBUGGING: Prices:', {
+        victory: victoryPrice,
+        sui: suiPrice
+      })
+      
+      // Step 3: Calculate each component
+      const calculations: any[] = []
+      
+      // Check vault balances
+      if (lockerConfig.vaultBalances) {
+        const suiRewards = parseFloat(lockerConfig.vaultBalances.suiRewards || '0') / Math.pow(10, 9)
+        const victoryRewards = parseFloat(lockerConfig.vaultBalances.victoryRewards || '0') / Math.pow(10, 6)
+        const lockedTokens = parseFloat(lockerConfig.vaultBalances.lockedTokens || '0') / Math.pow(10, 6)
+        
+        calculations.push({
+          type: 'SUI Rewards',
+          rawBalance: lockerConfig.vaultBalances.suiRewards,
+          formattedBalance: suiRewards,
+          price: suiPrice.usdPrice,
+          tvl: suiRewards * suiPrice.usdPrice
+        })
+        
+        calculations.push({
+          type: 'Victory Rewards',
+          rawBalance: lockerConfig.vaultBalances.victoryRewards,
+          formattedBalance: victoryRewards,
+          price: victoryPrice.usdPrice,
+          tvl: victoryRewards * victoryPrice.usdPrice
+        })
+        
+        calculations.push({
+          type: 'Locked Tokens',
+          rawBalance: lockerConfig.vaultBalances.lockedTokens,
+          formattedBalance: lockedTokens,
+          price: victoryPrice.usdPrice,
+          tvl: lockedTokens * victoryPrice.usdPrice
+        })
+      }
+      
+      // Check pool stats if available
+      if (lockerConfig.poolStats) {
+        const poolTypes = ['weekLocked', 'threeMonthLocked', 'yearLocked', 'threeYearLocked']
+        
+        for (const poolType of poolTypes) {
+          const rawAmount = lockerConfig.poolStats[poolType] || '0'
+          const formattedAmount = parseFloat(rawAmount) / Math.pow(10, 6)
+          
+          calculations.push({
+            type: `Pool ${poolType}`,
+            rawBalance: rawAmount,
+            formattedBalance: formattedAmount,
+            price: victoryPrice.usdPrice,
+            tvl: formattedAmount * victoryPrice.usdPrice
+          })
+        }
+      }
+      
+      const totalTVL = calculations.reduce((sum, calc) => sum + calc.tvl, 0)
+      
+      console.log('📊 DEBUGGING: All calculations:', calculations)
+      console.log('💎 DEBUGGING: Total TVL:', totalTVL)
+      
+      return {
+        lockerConfig,
+        victoryPrice,
+        suiPrice,
+        calculations,
+        totalTVL,
+        errors
+      }
+      
+    } catch (error) {
+      console.error('💥 DEBUGGING: Locker TVL debug failed:', error)
+      errors.push(String(error))
+      
+      return {
+        lockerConfig: null,
+        victoryPrice: { symbol: 'VICTORY', tokenType: '', usdPrice: 0, source: 'HARDCODED', lastUpdated: 0, confidence: 'LOW' },
+        suiPrice: { symbol: 'SUI', tokenType: '', usdPrice: 0, source: 'HARDCODED', lastUpdated: 0, confidence: 'LOW' },
+        calculations: [],
+        totalTVL: 0,
+        errors
+      }
+    }
+  }
   static async debugPoolDiscovery(): Promise<{
     eventPools: any[]
     processedPools: FarmPoolInfo[]
