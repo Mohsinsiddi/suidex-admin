@@ -219,17 +219,17 @@ export class TVLAPRService {
 
       // Step 2: Update prices
       this.logger.info('Updating token prices...')
-      pricesUpdated = await this.updatePricesForFarmPools(farmPools)
+      pricesUpdated = await TVLAPRService.updatePricesForFarmPools(farmPools)
       this.logger.info(`Updated ${pricesUpdated} token prices`)
 
       // Step 3: Calculate farm TVL
       this.logger.info('Calculating farm TVL...')
-      const farmTVL = await this.calculateFarmTVLFromPools(farmPools)
+      const farmTVL = await TVLAPRService.calculateFarmTVLFromPools(farmPools)
       poolsProcessed = farmPools.length
 
       // Step 4: Calculate locker TVL
       this.logger.info('Calculating locker TVL...')
-      const lockerTVL = await this.calculateLockerTVL()
+      const lockerTVL = await TVLAPRService.calculateLockerTVL()
 
       // Step 5: Calculate system totals
       const totalTVL = farmTVL.totalFarmTVL + lockerTVL.totalLockerTVL
@@ -281,45 +281,71 @@ export class TVLAPRService {
       this.logger.info(`Found ${pools.length} pools from events`)
       
       const farmPools: FarmPoolInfo[] = []
+      const poolErrors: Array<{pool: string, error: string}> = []
       
       // Use current account or fallback to dummy address
       const senderAddress = this.currentAccount?.address || 
         '0x0000000000000000000000000000000000000000000000000000000000000000'
       
-      for (const pool of pools) {
+      for (const [index, pool] of pools.entries()) {
         try {
-          // ✅ FIXED: Use your working pattern exactly
+          this.logger.info(`🔍 Processing pool ${index + 1}/${pools.length}: ${pool.name} (${pool.type})`)
+          
+          // ✅ FIXED: Get pool info with better error handling
           const poolInfo = await this.getFarmPoolInfoWorking(pool.typeName, senderAddress)
           
-          if (poolInfo && poolInfo.totalStakedBigInt && poolInfo.totalStakedBigInt > 0n) {
+          if (poolInfo && poolInfo.totalStakedBigInt !== undefined) {
+            // Accept pools even with 0 stake for debugging
+            const totalStaked = poolInfo.totalStakedBigInt.toString()
+            
             farmPools.push({
               poolId: pool.id,
               poolName: pool.name,
               poolType: pool.type as 'LP' | 'Single',
               tokenType: pool.typeName,
-              totalStaked: poolInfo.totalStakedBigInt.toString(),
+              totalStaked: totalStaked,
               allocationPoints: pool.allocationPoints,
-              isActive: poolInfo.active || true,
+              isActive: poolInfo.active !== false, // Default to true if undefined
               pairId: pool.type === 'LP' ? await this.findPairIdWorking(pool.typeName, senderAddress) : undefined
             })
             
-            this.logger.debug(`SUCCESS: Processed pool ${pool.name}`, {
-              totalStaked: poolInfo.totalStakedBigInt.toString(),
-              active: poolInfo.active
+            this.logger.info(`✅ Successfully processed pool: ${pool.name}`, {
+              type: pool.type,
+              totalStaked: totalStaked,
+              active: poolInfo.active,
+              hasStake: poolInfo.totalStakedBigInt > 0n
             })
           } else {
-            this.logger.debug(`Skipped pool ${pool.name}: No stake or inactive`)
+            this.logger.warn(`❌ Failed to get pool info for ${pool.name}`)
+            poolErrors.push({pool: pool.name, error: 'Failed to get pool info'})
           }
         } catch (error) {
-          this.logger.error(`Error processing pool ${pool.name}`, error)
+          this.logger.error(`❌ Error processing pool ${pool.name}:`, error)
+          poolErrors.push({pool: pool.name, error: String(error)})
         }
       }
 
-      this.logger.info(`Successfully discovered ${farmPools.length} active farm pools`)
+      // ✅ IMPROVED: Show detailed summary
+      this.logger.info(`📊 Pool Discovery Summary:`, {
+        totalFound: pools.length,
+        successfullyProcessed: farmPools.length,
+        errors: poolErrors.length,
+        lpPools: farmPools.filter(p => p.poolType === 'LP').length,
+        singlePools: farmPools.filter(p => p.poolType === 'Single').length,
+        poolsWithStake: farmPools.filter(p => BigInt(p.totalStaked) > 0n).length
+      })
+
+      if (poolErrors.length > 0) {
+        this.logger.warn(`⚠️ Pool processing errors:`)
+        poolErrors.forEach(({pool, error}) => {
+          this.logger.warn(`  - ${pool}: ${error}`)
+        })
+      }
+
       return farmPools
 
     } catch (error) {
-      this.logger.error('Failed to discover farm pools', error)
+      this.logger.error('💥 CRITICAL: Farm pool discovery failed', error)
       return []
     }
   }
@@ -1264,8 +1290,88 @@ export class TVLAPRService {
   }
 
   /**
-   * Get price discovery details for debugging
+   * Debug pool discovery to see why we're missing 2 pools
    */
+  static async debugPoolDiscovery(): Promise<{
+    eventPools: any[]
+    processedPools: FarmPoolInfo[]
+    poolBreakdown: any
+    errors: any[]
+  }> {
+    try {
+      const { pools } = await EventBasedPoolService.getAllPools()
+      const senderAddress = this.currentAccount?.address || 
+        '0x0000000000000000000000000000000000000000000000000000000000000000'
+      
+      const processedPools: FarmPoolInfo[] = []
+      const errors: any[] = []
+      
+      console.log('🔍 DEBUGGING: All pools from events:', pools.map(p => ({
+        id: p.id,
+        name: p.name,
+        type: p.type,
+        allocationPoints: p.allocationPoints,
+        isActive: p.isActive
+      })))
+      
+      for (const pool of pools) {
+        try {
+          const poolInfo = await this.getFarmPoolInfoWorking(pool.typeName, senderAddress)
+          
+          if (poolInfo && poolInfo.totalStakedBigInt !== undefined) {
+            processedPools.push({
+              poolId: pool.id,
+              poolName: pool.name,
+              poolType: pool.type as 'LP' | 'Single',
+              tokenType: pool.typeName,
+              totalStaked: poolInfo.totalStakedBigInt.toString(),
+              allocationPoints: pool.allocationPoints,
+              isActive: poolInfo.active !== false,
+              pairId: pool.type === 'LP' ? await this.findPairIdWorking(pool.typeName, senderAddress) : undefined
+            })
+          } else {
+            errors.push({
+              pool: pool.name,
+              error: 'No pool info returned',
+              poolInfo
+            })
+          }
+        } catch (error) {
+          errors.push({
+            pool: pool.name,
+            error: String(error)
+          })
+        }
+      }
+      
+      const poolBreakdown = {
+        totalFromEvents: pools.length,
+        totalProcessed: processedPools.length,
+        lpPools: processedPools.filter(p => p.poolType === 'LP').length,
+        singlePools: processedPools.filter(p => p.poolType === 'Single').length,
+        poolsWithStake: processedPools.filter(p => BigInt(p.totalStaked) > 0n).length,
+        errors: errors.length
+      }
+      
+      console.log('📊 DEBUGGING: Pool breakdown:', poolBreakdown)
+      console.log('❌ DEBUGGING: Errors:', errors)
+      
+      return {
+        eventPools: pools,
+        processedPools,
+        poolBreakdown,
+        errors
+      }
+    } catch (error) {
+      console.error('💥 Debug pool discovery failed:', error)
+      return {
+        eventPools: [],
+        processedPools: [],
+        poolBreakdown: {},
+        errors: [{ error: String(error) }]
+      }
+    }
+  }
   static async debugPriceDiscovery(symbol: string, tokenType?: string): Promise<{
     symbol: string
     tokenType: string
