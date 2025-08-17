@@ -58,7 +58,7 @@ function ChevronDownIcon({ className = "w-4 h-4" }: IconProps) {
   )
 }
 
-type ActiveTab = 'overview' | 'pools' | 'monitoring' | 'tokens' | 'emissions' | 'factory' | 'locker' | 'analytics'
+type ActiveTab = 'overview' | 'pools' | 'monitoring' | 'tokens' | 'emissions' | 'factory' | 'locker'
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('overview')
@@ -127,12 +127,6 @@ export default function AdminDashboard() {
                 label="Token Locker"
                 active={activeTab === 'locker'}
                 onClick={() => setActiveTab('locker')}
-              />
-              <NavItem
-                icon={<AnalyticsIcon />}
-                label="Analytics"
-                active={activeTab === 'analytics'}
-                onClick={() => setActiveTab('analytics')}
               />
             </nav>
           </div>
