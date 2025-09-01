@@ -8,7 +8,7 @@ import CommonMonitoringTab from './CommonMonitoringTab'
 import VictoryTokenControl from './VictoryTokenControl'
 import EmissionManagement from './EmissionManagement'
 import FactoryTab from './FactoryTab'
-import TokenLockerTab from './TokenLockerTab'
+import TokenLockerTab from './tokenlocker/TokenLockerTab'
 import { 
   OverviewIcon, 
   PoolIcon, 

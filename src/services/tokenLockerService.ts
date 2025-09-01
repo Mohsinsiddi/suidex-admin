@@ -1,4 +1,4 @@
-// services/tokenLockerService.ts - FULLY UPDATED VERSION using tokenUtils pattern
+// components/tokenlocker/services/tokenLockerService.ts - ENHANCED VERSION (Part 1)
 import { Transaction } from '@mysten/sui/transactions'
 import { suiClient } from '../utils/suiClient'
 import { CONSTANTS } from '../constants'
@@ -66,7 +66,8 @@ export interface TokenLockerStats {
 export interface LockerAdminEvent {
   id: string
   type: 'VictoryAllocationsUpdated' | 'SUIAllocationsUpdated' | 'WeeklyRevenueAdded' | 
-        'AdminPresaleLockCreated' | 'VaultDeposit' | 'FundingDeferred' | 'EpochCreated'
+        'AdminPresaleLockCreated' | 'VaultDeposit' | 'FundingDeferred' | 'EpochCreated' |
+        'TokensLocked' | 'TokensUnlocked' | 'VictoryRewardsClaimed' | 'PoolSUIClaimed'
   eventName: string
   data: any
   timestamp: string
@@ -74,9 +75,23 @@ export interface LockerAdminEvent {
   admin: string
 }
 
+export interface SystemHealth {
+  overall: 'healthy' | 'warning' | 'critical'
+  issues: string[]
+  recommendations: string[]
+}
+
+export interface BatchLockOperation {
+  userAddress: string
+  amount: string
+  lockPeriod: number
+  status: 'pending' | 'success' | 'failed'
+  error?: string
+}
+
 export class TokenLockerService {
   
-  // 🔧 UTILITY METHODS - copied from tokenUtils.ts
+  // UTILITY METHODS (existing)
   static mistToVictory(mist: string): string {
     const num = BigInt(mist)
     return (Number(num) / 1e6).toString()
@@ -87,7 +102,6 @@ export class TokenLockerService {
     return (Number(num) / 1e9).toString()
   }
 
-  // 🔧 COPIED: Same fetchVaultBalance method from tokenUtils.ts
   static async fetchVaultBalance(vaultId: string, isVictoryVault: boolean = true): Promise<string> {
     try {
       if (!vaultId) {
@@ -111,38 +125,19 @@ export class TokenLockerService {
         const fields = vaultObject.data.content.fields as any
         const vaultType = vaultObject.data.type
         
-        console.log('TokenLocker vault structure:', { 
-          vaultId, 
-          vaultType,
-          fields
-        })
-        
         let balance = '0'
         
-        // Determine balance field based on vault type
         if (vaultType?.includes('::farm::RewardVault')) {
-          // Farm Vault: victory_balance field
           balance = fields.victory_balance || '0'
         } else if (vaultType?.includes('::victory_token_locker::VictoryRewardVault')) {
-          // Locker Reward Vault: victory_balance field
           balance = fields.victory_balance || '0'
         } else if (vaultType?.includes('::victory_token_locker::LockedTokenVault')) {
-          // Locker Locked Vault: locked_balance field
           balance = fields.locked_balance || '0'
         } else if (vaultType?.includes('::victory_token_locker::SUIRewardVault')) {
-          // SUI Reward Vault: sui_balance field
           balance = fields.sui_balance || '0'
         } else {
-          // Fallback: try common field names
           balance = fields.victory_balance || fields.locked_balance || fields.sui_balance || fields.balance || '0'
         }
-
-        console.log('TokenLocker vault balance extracted:', { 
-          vaultId, 
-          vaultType,
-          balance,
-          balanceFormatted: isVictoryVault ? this.mistToVictory(balance) : this.mistToSui(balance)
-        })
         
         return balance.toString()
       }
@@ -157,7 +152,6 @@ export class TokenLockerService {
   // Fetch token locker configuration
   static async fetchTokenLockerConfig(): Promise<TokenLockerConfig> {
     try {
-      // Get the main TokenLocker object
       const tokenLocker = await suiClient.getObject({
         id: CONSTANTS.TOKEN_LOCKER_ID,
         options: {
@@ -172,7 +166,6 @@ export class TokenLockerService {
 
       const fields = (tokenLocker.data.content as any).fields
 
-      // Get vault balances by calling view functions
       const [vaultBalances, allocations, poolStats, epochInfo, balanceInfo] = await Promise.all([
         this.fetchVaultBalances(),
         this.fetchAllocations(),
@@ -200,14 +193,12 @@ export class TokenLockerService {
     }
   }
 
-  // 🔧 FIXED: Use direct object access pattern from tokenUtils.ts
   static async fetchVaultBalances(): Promise<TokenLockerConfig['vaultBalances']> {
     try {
-      // Use the same fetchVaultBalance method from tokenUtils.ts
       const [lockedBalance, victoryBalance, suiBalance] = await Promise.all([
-        this.fetchVaultBalance(CONSTANTS.VAULT_IDS.LOCKER_LOCKED_VAULT_ID, true),  // Victory vault
-        this.fetchVaultBalance(CONSTANTS.VAULT_IDS.LOCKER_REWARD_VAULT_ID, true),  // Victory vault  
-        this.fetchVaultBalance(CONSTANTS.VAULT_IDS.SUI_REWARD_VAULT_ID, false)     // SUI vault
+        this.fetchVaultBalance(CONSTANTS.VAULT_IDS.LOCKER_LOCKED_VAULT_ID, true),
+        this.fetchVaultBalance(CONSTANTS.VAULT_IDS.LOCKER_REWARD_VAULT_ID, true),
+        this.fetchVaultBalance(CONSTANTS.VAULT_IDS.SUI_REWARD_VAULT_ID, false)
       ])
 
       return {
@@ -225,10 +216,8 @@ export class TokenLockerService {
     }
   }
 
-  // 🔧 FIXED: Fetch allocations from TokenLocker object fields directly
   static async fetchAllocations(): Promise<TokenLockerConfig['allocations']> {
     try {
-      // First try to get data from TokenLocker object fields directly
       const tokenLocker = await suiClient.getObject({
         id: CONSTANTS.TOKEN_LOCKER_ID,
         options: {
@@ -240,9 +229,6 @@ export class TokenLockerService {
       if (tokenLocker.data?.content && 'fields' in tokenLocker.data.content) {
         const fields = tokenLocker.data.content.fields as any
         
-        console.log('TokenLocker fields for allocations:', fields)
-
-        // Extract allocation fields directly from TokenLocker object
         const victoryWeek = parseInt(fields.victory_week_allocation || '200')
         const victoryThreeMonth = parseInt(fields.victory_three_month_allocation || '800')
         const victoryYear = parseInt(fields.victory_year_allocation || '2500')
@@ -255,11 +241,6 @@ export class TokenLockerService {
 
         const victoryTotal = victoryWeek + victoryThreeMonth + victoryYear + victoryThreeYear
         const suiTotal = suiWeek + suiThreeMonth + suiYear + suiThreeYear
-
-        console.log('Allocations extracted from TokenLocker:', {
-          victory: { victoryWeek, victoryThreeMonth, victoryYear, victoryThreeYear, victoryTotal },
-          sui: { suiWeek, suiThreeMonth, suiYear, suiThreeYear, suiTotal }
-        })
 
         return {
           victory: {
@@ -279,9 +260,7 @@ export class TokenLockerService {
         }
       }
 
-      // Fallback: Try Move function calls if direct access fails
-      console.log('Falling back to Move function calls for allocations...')
-      
+      // Fallback to Move function calls
       const tx = new Transaction()
       tx.moveCall({
         target: `${CONSTANTS.PACKAGE_ID}::victory_token_locker::get_victory_allocations`,
@@ -305,7 +284,6 @@ export class TokenLockerService {
         })
       ])
 
-      // Parse victory allocations (week, 3month, year, 3year, total)
       const victoryValues = victoryResult.results?.[0]?.returnValues || []
       const suiValues = suiResult.results?.[0]?.returnValues || []
 
@@ -325,8 +303,6 @@ export class TokenLockerService {
         total: parseInt(suiValues[4]?.[0] || '10000')
       }
 
-      console.log('Allocations from Move calls:', { victory: victoryData, sui: suiData })
-
       return {
         victory: victoryData,
         sui: suiData
@@ -340,7 +316,6 @@ export class TokenLockerService {
     }
   }
 
-  // Fetch pool statistics
   static async fetchPoolStatistics(): Promise<TokenLockerConfig['poolStats']> {
     try {
       const tx = new Transaction()
@@ -375,10 +350,8 @@ export class TokenLockerService {
     }
   }
 
-  // 🔧 FIXED: Fetch current epoch information from blockchain events
   static async fetchCurrentEpochInfo(): Promise<TokenLockerConfig['currentEpoch']> {
     try {
-      // Get the latest EpochCreated events to find current epoch
       const epochCreatedEvents = await suiClient.queryEvents({
         query: {
           MoveEventType: `${CONSTANTS.PACKAGE_ID}::victory_token_locker::EpochCreated`
@@ -387,18 +360,12 @@ export class TokenLockerService {
         order: 'descending'
       })
 
-      // Get the latest WeeklyRevenueAdded events to check finalization
       const revenueEvents = await suiClient.queryEvents({
         query: {
           MoveEventType: `${CONSTANTS.PACKAGE_ID}::victory_token_locker::WeeklyRevenueAdded`
         },
         limit: 20,
         order: 'descending'
-      })
-
-      console.log('Epoch events found:', {
-        epochCreated: epochCreatedEvents.data?.length || 0,
-        revenueAdded: revenueEvents.data?.length || 0
       })
 
       let currentEpoch = {
@@ -409,22 +376,18 @@ export class TokenLockerService {
         allocationsFinalized: false
       }
 
-      // Find the latest epoch from EpochCreated events
       if (epochCreatedEvents.data && epochCreatedEvents.data.length > 0) {
         const latestEpochEvent = epochCreatedEvents.data[0]
         const epochData = latestEpochEvent.parsedJson as any
-
-        console.log('Latest epoch event:', epochData)
 
         currentEpoch = {
           id: parseInt(epochData.epoch_id || '0'),
           weekStart: parseInt(epochData.week_start || '0'),
           weekEnd: parseInt(epochData.week_end || '0'),
-          isClaimable: false, // Will be updated based on revenue events
-          allocationsFinalized: false // Will be updated based on revenue events
+          isClaimable: false,
+          allocationsFinalized: false
         }
 
-        // Check if this epoch has revenue added (which makes it claimable and finalized)
         if (revenueEvents.data && revenueEvents.data.length > 0) {
           const hasRevenueForEpoch = revenueEvents.data.some(event => {
             const revenueData = event.parsedJson as any
@@ -438,13 +401,11 @@ export class TokenLockerService {
         }
       }
 
-      console.log('Current epoch info from events:', currentEpoch)
       return currentEpoch
 
     } catch (error) {
       console.error('Error fetching epoch info from events:', error)
       
-      // Fallback: Try direct object access
       try {
         const tokenLocker = await suiClient.getObject({
           id: CONSTANTS.TOKEN_LOCKER_ID,
@@ -459,7 +420,7 @@ export class TokenLockerService {
           
           const epochId = parseInt(fields.current_epoch_id || '0')
           const weekStart = parseInt(fields.current_week_start || '0')
-          const weekDuration = 7 * 24 * 60 * 60 // 7 days in seconds
+          const weekDuration = 7 * 24 * 60 * 60
           const weekEnd = weekStart > 0 ? weekStart + weekDuration : 0
 
           return {
@@ -484,163 +445,6 @@ export class TokenLockerService {
     }
   }
 
-  // 🆕 NEW: Get detailed epoch information with revenue data
-  static async fetchEpochDetails(epochId?: number): Promise<{
-    epochInfo: TokenLockerConfig['currentEpoch']
-    revenueData: {
-      totalRevenue: string
-      weekPoolSui: string
-      threeMonthPoolSui: string
-      yearPoolSui: string
-      threeYearPoolSui: string
-      txDigest?: string
-      timestamp?: string
-    } | null
-  }> {
-    try {
-      // If no epochId provided, get current epoch
-      const currentEpochInfo = epochId ? 
-        { id: epochId, weekStart: 0, weekEnd: 0, isClaimable: false, allocationsFinalized: false } :
-        await this.fetchCurrentEpochInfo()
-
-      const targetEpochId = epochId || currentEpochInfo.id
-
-      if (targetEpochId === 0) {
-        return {
-          epochInfo: currentEpochInfo,
-          revenueData: null
-        }
-      }
-
-      // Get all revenue events for this epoch
-      const revenueEvents = await suiClient.queryEvents({
-        query: {
-          MoveEventType: `${CONSTANTS.PACKAGE_ID}::victory_token_locker::WeeklyRevenueAdded`
-        },
-        limit: 50,
-        order: 'descending'
-      })
-
-      console.log(`Looking for revenue data for epoch ${targetEpochId}`)
-
-      let revenueData = null
-
-      if (revenueEvents.data && revenueEvents.data.length > 0) {
-        // Find revenue event for this specific epoch
-        const epochRevenueEvent = revenueEvents.data.find(event => {
-          const eventData = event.parsedJson as any
-          return parseInt(eventData.epoch_id || '0') === targetEpochId
-        })
-
-        if (epochRevenueEvent) {
-          const eventData = epochRevenueEvent.parsedJson as any
-          
-          revenueData = {
-            totalRevenue: this.formatSUIAmount(eventData.total_week_revenue || '0'),
-            weekPoolSui: this.formatSUIAmount(eventData.week_pool_sui || '0'),
-            threeMonthPoolSui: this.formatSUIAmount(eventData.three_month_pool_sui || '0'),
-            yearPoolSui: this.formatSUIAmount(eventData.year_pool_sui || '0'),
-            threeYearPoolSui: this.formatSUIAmount(eventData.three_year_pool_sui || '0'),
-            txDigest: epochRevenueEvent.id.txDigest,
-            timestamp: epochRevenueEvent.timestampMs
-          }
-
-          console.log(`Found revenue data for epoch ${targetEpochId}:`, revenueData)
-
-          // Update epoch status if revenue found
-          if (!epochId) { // Only update if we're checking current epoch
-            currentEpochInfo.isClaimable = true
-            currentEpochInfo.allocationsFinalized = true
-          }
-        }
-      }
-
-      return {
-        epochInfo: currentEpochInfo,
-        revenueData
-      }
-
-    } catch (error) {
-      console.error('Error fetching epoch details:', error)
-      return {
-        epochInfo: {
-          id: 0,
-          weekStart: 0,
-          weekEnd: 0,
-          isClaimable: false,
-          allocationsFinalized: false
-        },
-        revenueData: null
-      }
-    }
-  }
-
-  // 🆕 NEW: Get all epochs with revenue data for admin dashboard
-  static async fetchAllEpochsWithRevenue(): Promise<Array<{
-    epochId: number
-    weekStart: number
-    weekEnd: number
-    totalRevenue: string
-    isClaimable: boolean
-    txDigest: string
-    timestamp: string
-  }>> {
-    try {
-      // Get all WeeklyRevenueAdded events
-      const revenueEvents = await suiClient.queryEvents({
-        query: {
-          MoveEventType: `${CONSTANTS.PACKAGE_ID}::victory_token_locker::WeeklyRevenueAdded`
-        },
-        limit: 100,
-        order: 'descending'
-      })
-
-      const epochs: Array<{
-        epochId: number
-        weekStart: number
-        weekEnd: number
-        totalRevenue: string
-        isClaimable: boolean
-        txDigest: string
-        timestamp: string
-      }> = []
-
-      if (revenueEvents.data && revenueEvents.data.length > 0) {
-        for (const event of revenueEvents.data) {
-          const eventData = event.parsedJson as any
-          const epochId = parseInt(eventData.epoch_id || '0')
-          
-          // Calculate week start/end based on epoch ID (assuming weekly intervals)
-          const currentTime = Math.floor(Date.now() / 1000)
-          const weekDuration = 7 * 24 * 60 * 60 // 7 days in seconds
-          const weekStart = currentTime - (epochId * weekDuration)
-          const weekEnd = weekStart + weekDuration
-
-          epochs.push({
-            epochId,
-            weekStart,
-            weekEnd,
-            totalRevenue: this.formatSUIAmount(eventData.total_week_revenue || '0'),
-            isClaimable: true, // If revenue was added, it's claimable
-            txDigest: event.id.txDigest || '',
-            timestamp: event.timestampMs || '0'
-          })
-        }
-      }
-
-      // Sort by epoch ID descending (latest first)
-      epochs.sort((a, b) => b.epochId - a.epochId)
-
-      console.log(`Found ${epochs.length} epochs with revenue data`)
-      return epochs
-
-    } catch (error) {
-      console.error('Error fetching all epochs with revenue:', error)
-      return []
-    }
-  }
-
-  // Fetch balance tracking information
   static async fetchBalanceTracking(): Promise<TokenLockerConfig['balanceTracking']> {
     try {
       const tx = new Transaction()
@@ -661,7 +465,6 @@ export class TokenLockerService {
 
       const values = result.results?.[0]?.returnValues || []
 
-      // Also get lock counts from locked vault
       const lockTx = new Transaction()
       lockTx.moveCall({
         target: `${CONSTANTS.PACKAGE_ID}::victory_token_locker::get_locked_vault_statistics`,
@@ -692,12 +495,10 @@ export class TokenLockerService {
     }
   }
 
-  // Fetch token locker statistics for dashboard
   static async fetchTokenLockerStats(): Promise<TokenLockerStats> {
     try {
       const config = await this.fetchTokenLockerConfig()
       
-      // Calculate total value locked (simplified)
       const totalLocked = parseFloat(config.poolStats.totalLocked) / Math.pow(10, 6)
       const activeLocks = config.balanceTracking.lockCount
       
@@ -707,7 +508,7 @@ export class TokenLockerService {
         totalUsers: Math.floor(activeLocks * 0.7), // Estimate
         suiRevenueThisWeek: this.formatSUIAmount(config.vaultBalances.suiRewards),
         victoryRewardsDistributed: this.formatVictoryAmount(config.vaultBalances.victoryRewards),
-        currentEpochRevenue: '0 SUI' // Would need epoch-specific call
+        currentEpochRevenue: '0 SUI'
       }
     } catch (error) {
       console.error('Error fetching token locker stats:', error)
@@ -722,7 +523,7 @@ export class TokenLockerService {
     }
   }
 
-  // Fetch admin events using existing VaultEventService
+  // NEW: Fetch admin events using existing VaultEventService
   static async fetchLockerAdminEvents(): Promise<LockerAdminEvent[]> {
     try {
       // Get vault events from existing service
@@ -753,7 +554,7 @@ export class TokenLockerService {
     }
   }
 
-  // Fetch locker-specific events (allocations, revenue, etc.)
+  // Fetch locker-specific events
   static async fetchLockerSpecificEvents(): Promise<LockerAdminEvent[]> {
     try {
       const eventTypes = [
@@ -762,7 +563,10 @@ export class TokenLockerService {
         'WeeklyRevenueAdded',
         'AdminPresaleLockCreated',
         'EpochCreated',
-        'FundingDeferred'
+        'TokensLocked',
+        'TokensUnlocked',
+        'VictoryRewardsClaimed',
+        'PoolSUIClaimed'
       ]
 
       const allEvents: LockerAdminEvent[] = []
@@ -788,7 +592,7 @@ export class TokenLockerService {
                 data: parsedEvent,
                 timestamp: event.timestampMs || '0',
                 txDigest: event.id.txDigest || '',
-                admin: parsedEvent.admin || 'admin'
+                admin: parsedEvent.admin || parsedEvent.user || 'system'
               }
             })
 
@@ -828,9 +632,64 @@ export class TokenLockerService {
       'AdminPresaleLockCreated': 'Admin Created User Lock',
       'VaultDeposit': 'Vault Deposit',
       'EpochCreated': 'New Epoch Created',
-      'FundingDeferred': 'Revenue Funding Deferred'
+      'FundingDeferred': 'Revenue Funding Deferred',
+      'TokensLocked': 'Tokens Locked',
+      'TokensUnlocked': 'Tokens Unlocked',
+      'VictoryRewardsClaimed': 'Victory Rewards Claimed',
+      'PoolSUIClaimed': 'Pool SUI Claimed'
     }
     return displayNames[eventType] || eventType
+  }
+
+  // NEW: System Health Monitoring
+  static async fetchSystemHealth(): Promise<SystemHealth> {
+    try {
+      const config = await this.fetchTokenLockerConfig()
+      const vaultBalances = config.vaultBalances
+
+      const issues: string[] = []
+      const recommendations: string[] = []
+
+      // Check vault health
+      if (parseFloat(vaultBalances.victoryRewards) === 0) {
+        issues.push('Victory reward vault is empty')
+        recommendations.push('Deposit Victory tokens for user rewards')
+      }
+
+      if (parseFloat(vaultBalances.suiRewards) < 1000000000) { // Less than 1 SUI
+        issues.push('SUI reward vault is low')
+        recommendations.push('Add weekly SUI revenue for distribution')
+      }
+
+      // Check allocations
+      if (config.allocations.victory.total !== 10000) {
+        issues.push('Victory allocations do not sum to 100%')
+        recommendations.push('Update Victory allocations to total 100%')
+      }
+
+      if (config.allocations.sui.total !== 10000) {
+        issues.push('SUI allocations do not sum to 100%')
+        recommendations.push('Update SUI allocations to total 100%')
+      }
+
+      // Check epochs
+      if (config.currentEpoch.id > 0 && !config.currentEpoch.allocationsFinalized) {
+        issues.push('Current epoch allocations not finalized')
+        recommendations.push('Add SUI revenue to finalize current epoch')
+      }
+
+      const overall = issues.length === 0 ? 'healthy' :
+                     issues.length <= 2 ? 'warning' : 'critical'
+
+      return { overall, issues, recommendations }
+    } catch (error) {
+      console.error('Error fetching system health:', error)
+      return {
+        overall: 'critical',
+        issues: ['Failed to fetch system health data'],
+        recommendations: ['Check network connection and try again']
+      }
+    }
   }
 
   // TRANSACTION BUILDERS FOR ADMIN OPERATIONS
@@ -839,7 +698,6 @@ export class TokenLockerService {
   static buildDepositVictoryTokensTransaction(amount: string): Transaction {
     const tx = new Transaction()
     
-    // Split coins for the amount
     const [coin] = tx.splitCoins(tx.gas, [tx.pure.u64(amount)])
     
     tx.moveCall({
@@ -905,7 +763,6 @@ export class TokenLockerService {
   static buildAddWeeklySUIRevenueTransaction(amount: string): Transaction {
     const tx = new Transaction()
     
-    // Split SUI coins for the amount
     const [coin] = tx.splitCoins(tx.gas, [tx.pure.u64(amount)])
     
     tx.moveCall({
@@ -921,7 +778,7 @@ export class TokenLockerService {
     return tx
   }
 
-  // Create user lock (presale)
+  // NEW: Create single user lock (for presale/admin)
   static buildCreateUserLockTransaction(
     userAddress: string,
     amount: string,
@@ -929,7 +786,6 @@ export class TokenLockerService {
   ): Transaction {
     const tx = new Transaction()
     
-    // Split coins for the lock amount
     const [coin] = tx.splitCoins(tx.gas, [tx.pure.u64(amount)])
     
     tx.moveCall({
@@ -948,7 +804,41 @@ export class TokenLockerService {
     return tx
   }
 
-  // Create vault transactions
+  // NEW: Batch user lock creation
+  static buildBatchCreateUserLocksTransaction(
+    operations: BatchLockOperation[]
+  ): Transaction {
+    const tx = new Transaction()
+    
+    // Prepare arrays for batch operation
+    const userAddresses = operations.map(op => op.userAddress)
+    const amounts = operations.map(op => op.amount)
+    const lockPeriods = operations.map(op => op.lockPeriod.toString())
+    
+    // Calculate total amount needed
+    const totalAmount = amounts.reduce((sum, amount) => sum + BigInt(amount), BigInt(0))
+    
+    // Split coins for the total amount
+    const [coin] = tx.splitCoins(tx.gas, [tx.pure.u64(totalAmount.toString())])
+    
+    tx.moveCall({
+      target: `${CONSTANTS.PACKAGE_ID}::victory_token_locker::admin_batch_create_user_locks`,
+      arguments: [
+        tx.object(CONSTANTS.TOKEN_LOCKER_ID),
+        tx.object(CONSTANTS.VAULT_IDS.LOCKER_LOCKED_VAULT_ID),
+        coin,
+        tx.pure.vector('address', userAddresses),
+        tx.pure.vector('u64', amounts),
+        tx.pure.vector('u64', lockPeriods),
+        tx.object(CONSTANTS.GLOBAL_EMISSION_CONTROLLER_ID),
+        tx.object(CONSTANTS.TOKEN_LOCKER_ADMIN_CAP_ID),
+        tx.object(CONSTANTS.CLOCK_ID)
+      ]
+    })
+    return tx
+  }
+
+  // NEW: Vault creation transactions
   static buildCreateLockedTokenVaultTransaction(): Transaction {
     const tx = new Transaction()
     tx.moveCall({
@@ -1053,6 +943,49 @@ export class TokenLockerService {
     }
   }
 
+  // NEW: Batch operations validation
+  static validateBatchLockOperations(operations: BatchLockOperation[]): {
+    isValid: boolean
+    errors: string[]
+    totalAmount: string
+  } {
+    const errors: string[] = []
+    let totalAmount = BigInt(0)
+
+    if (operations.length === 0) {
+      errors.push('At least one lock operation is required')
+    }
+
+    if (operations.length > 100) {
+      errors.push('Maximum 100 lock operations per batch')
+    }
+
+    operations.forEach((op, index) => {
+      const addressValidation = this.validateUserAddress(op.userAddress)
+      if (!addressValidation.isValid) {
+        errors.push(`Row ${index + 1}: ${addressValidation.error}`)
+      }
+
+      const periodValidation = this.validateLockPeriod(op.lockPeriod)
+      if (!periodValidation.isValid) {
+        errors.push(`Row ${index + 1}: ${periodValidation.error}`)
+      }
+
+      const amountValidation = this.validateAmount(op.amount, '1000000')
+      if (!amountValidation.isValid) {
+        errors.push(`Row ${index + 1}: ${amountValidation.error}`)
+      } else {
+        totalAmount += BigInt(op.amount)
+      }
+    })
+
+    return {
+      isValid: errors.length === 0,
+      errors,
+      totalAmount: totalAmount.toString()
+    }
+  }
+
   // ERROR HANDLING
 
   static getTokenLockerOperationErrorMessage(error: any): string {
@@ -1079,6 +1012,9 @@ export class TokenLockerService {
       }
       if (error.message.includes('E_INSUFFICIENT_')) {
         return 'Insufficient balance for this operation'
+      }
+      if (error.message.includes('E_WEEK_NOT_FINISHED')) {
+        return 'Cannot add revenue until current week is finished'
       }
       if (error.message.includes('rejected')) {
         return 'Transaction was rejected by user'
@@ -1121,6 +1057,26 @@ export class TokenLockerService {
       1095: '3 Years'
     }
     return periodNames[period] || `${period} days`
+  }
+
+  // NEW: Get lock period options for forms
+  static getLockPeriodOptions(): Array<{ value: number; label: string; description: string }> {
+    return [
+      { value: 7, label: '1 Week', description: 'Short-term lock with 2% Victory allocation' },
+      { value: 90, label: '3 Months', description: 'Medium-term lock with 8% Victory allocation' },
+      { value: 365, label: '1 Year', description: 'Long-term lock with 25% Victory allocation' },
+      { value: 1095, label: '3 Years', description: 'Ultra long-term lock with 65% Victory allocation' }
+    ]
+  }
+
+  // NEW: Get minimum amounts for lock periods
+  static getMinimumLockAmounts(): Record<number, string> {
+    return {
+      7: '1000000',      // 1 Victory token for 1 week
+      90: '5000000',     // 5 Victory tokens for 3 months
+      365: '10000000',   // 10 Victory tokens for 1 year
+      1095: '25000000'   // 25 Victory tokens for 3 years
+    }
   }
 
   static getDefaultConfig(): TokenLockerConfig {
@@ -1175,27 +1131,12 @@ export class TokenLockerService {
     }
   }
 
-  // Check if user can perform admin operations
-  static canPerformAdminOperation(
-    userAddress: string,
-    operation: 'allocations' | 'revenue' | 'vaults' | 'locks'
-  ): boolean {
-    // For now, only check if user is the admin address
-    // In production, you might want more granular permissions
-    return userAddress === CONSTANTS.ADMIN
-  }
-
-  // Get vault health status
-  static getVaultHealthStatus(config: TokenLockerConfig): {
-    overall: 'healthy' | 'warning' | 'error'
-    issues: string[]
-    recommendations: string[]
-  } {
+  // NEW: Get vault health status
+  static getVaultHealthStatus(config: TokenLockerConfig): SystemHealth {
     const issues: string[] = []
     const recommendations: string[] = []
 
     // Check vault balances
-    const lockedBalance = parseFloat(config.vaultBalances.lockedTokens)
     const victoryBalance = parseFloat(config.vaultBalances.victoryRewards)
     const suiBalance = parseFloat(config.vaultBalances.suiRewards)
 
@@ -1227,83 +1168,12 @@ export class TokenLockerService {
     }
 
     const overall = issues.length === 0 ? 'healthy' :
-                   issues.length <= 2 ? 'warning' : 'error'
+                   issues.length <= 2 ? 'warning' : 'critical'
 
     return { overall, issues, recommendations }
   }
 
-  // Get allocation distribution info
-  static getAllocationInfo(): {
-    victory: { [key: string]: { percentage: number; description: string } }
-    sui: { [key: string]: { percentage: number; description: string } }
-  } {
-    return {
-      victory: {
-        week: {
-          percentage: 2,
-          description: 'Short-term stakers (1 week locks)'
-        },
-        threeMonth: {
-          percentage: 8,
-          description: 'Medium-term stakers (3 month locks)'
-        },
-        year: {
-          percentage: 25,
-          description: 'Long-term stakers (1 year locks)'
-        },
-        threeYear: {
-          percentage: 65,
-          description: 'Ultra long-term stakers (3 year locks)'
-        }
-      },
-      sui: {
-        week: {
-          percentage: 10,
-          description: 'SUI revenue for 1 week lockers'
-        },
-        threeMonth: {
-          percentage: 20,
-          description: 'SUI revenue for 3 month lockers'
-        },
-        year: {
-          percentage: 30,
-          description: 'SUI revenue for 1 year lockers'
-        },
-        threeYear: {
-          percentage: 40,
-          description: 'SUI revenue for 3 year lockers'
-        }
-      }
-    }
-  }
-
-  // Calculate APY estimates (simplified)
-  static calculateEstimatedAPY(config: TokenLockerConfig, lockPeriod: number): string {
-    try {
-      const poolTotal = parseFloat(config.poolStats.totalLocked)
-      if (poolTotal === 0) return '0%'
-
-      // Get allocation percentages
-      const victoryAlloc = lockPeriod === 7 ? config.allocations.victory.week :
-                          lockPeriod === 90 ? config.allocations.victory.threeMonth :
-                          lockPeriod === 365 ? config.allocations.victory.year :
-                          config.allocations.victory.threeYear
-
-      const suiAlloc = lockPeriod === 7 ? config.allocations.sui.week :
-                      lockPeriod === 90 ? config.allocations.sui.threeMonth :
-                      lockPeriod === 365 ? config.allocations.sui.year :
-                      config.allocations.sui.threeYear
-
-      // Simplified APY calculation (would need more complex logic in production)
-      const estimatedAPY = (victoryAlloc + suiAlloc) / 100 // Very simplified
-      
-      return estimatedAPY.toFixed(1) + '%'
-    } catch (error) {
-      return 'N/A'
-    }
-  }
-
-  // Get epoch timing info
+  // NEW: Get epoch timing info
   static getEpochTimingInfo(config: TokenLockerConfig): {
     current: {
       id: number
@@ -1317,7 +1187,7 @@ export class TokenLockerService {
     }
   } {
     const now = Date.now() / 1000
-    const weekDuration = 7 * 24 * 60 * 60 // 1 week in seconds
+    const weekDuration = 7 * 24 * 60 * 60
 
     let progress = 0
     let timeRemaining = 'Unknown'
@@ -1357,7 +1227,6 @@ export class TokenLockerService {
     }
   }
 
-  // Format duration helper
   static formatDuration(seconds: number): string {
     if (seconds <= 0) return '0s'
 
@@ -1372,12 +1241,12 @@ export class TokenLockerService {
     return `${secs}s`
   }
 
-  // Get comprehensive admin dashboard data
+  // NEW: Comprehensive admin dashboard data
   static async fetchAdminDashboardData(): Promise<{
     config: TokenLockerConfig
     stats: TokenLockerStats
     events: LockerAdminEvent[]
-    health: ReturnType<typeof TokenLockerService.getVaultHealthStatus>
+    health: SystemHealth
     timing: ReturnType<typeof TokenLockerService.getEpochTimingInfo>
   }> {
     try {
@@ -1410,5 +1279,13 @@ export class TokenLockerService {
         timing: this.getEpochTimingInfo(defaultConfig)
       }
     }
+  }
+
+  // Check if user can perform admin operations
+  static canPerformAdminOperation(
+    userAddress: string,
+    operation: 'allocations' | 'revenue' | 'vaults' | 'locks'
+  ): boolean {
+    return userAddress === CONSTANTS.ADMIN
   }
 }
