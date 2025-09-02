@@ -19,7 +19,7 @@ import {
   AnalyticsIcon,
   MonitorIcon
 } from './icons'
-import EnhancedOverviewTab from './TVLOverview'
+import EnhancedOverviewTab from './overview/EnhancedOverviewTab'
 
 // Icons for auth status
 interface IconProps {

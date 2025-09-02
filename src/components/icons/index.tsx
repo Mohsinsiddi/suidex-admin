@@ -342,6 +342,24 @@ export function InfoIcon({ className = "w-5 h-5", size }: IconProps) {
   )
 }
 
+// ChevronDownIcon Component
+export function ChevronDownIcon({ className = '', size = 24 }: { className?: string; size?: number }) {
+  return (
+    <svg className={className} width={size} height={size} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m6 9 6 6 6-6" />
+    </svg>
+  )
+}
+
+// ChevronUpIcon Component  
+export function ChevronUpIcon({ className = '', size = 24 }: { className?: string; size?: number }) {
+  return (
+    <svg className={className} width={size} height={size} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m18 15-6-6-6 6" />
+    </svg>
+  )
+}
+
 // Export all icons as a single object for easier importing
 export const Icons = {
   Overview: OverviewIcon,
@@ -385,5 +403,8 @@ export const Icons = {
   ArrowDown: ArrowDownIcon,
   Info: InfoIcon,
   Dex: DexIcon,
-  Swap: SwapIcon
+  Swap: SwapIcon,
+  ChevronDownIcon:ChevronDownIcon,
+  ChevronUpIcon:ChevronUpIcon
+
 } as const
