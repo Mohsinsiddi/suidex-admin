@@ -1,4 +1,4 @@
-// Complete Fixed TVL Service based on working pattern
+// Complete Fixed TVL Service with Enhanced APR Calculations and Comprehensive Logging
 import { suiClient } from '../utils/suiClient'
 import { CONSTANTS } from '../constants'
 import { EventBasedPoolService } from './eventBasedPoolService'
@@ -7,11 +7,11 @@ import { Transaction } from '@mysten/sui/transactions'
 import { EmissionService } from './emissionService'
 import { getCurrentEmissionRates } from '../utils/emissionUtils'
 import { calculateTokenomicsSnapshot } from '../utils/tokenomicsCalculator'
+
 // ================================
-// TYPES & INTERFACES
+// TYPES & INTERFACES (Same as before)
 // ================================
 
-// Add these interfaces to your existing TVLAPRService:
 interface APRBreakdown {
   baseAPR: number
   bonusAPR: number  
@@ -26,7 +26,6 @@ interface APRBreakdown {
   poolShare: number
 }
 
-// Victory Locker Lock Periods (from smart contract)
 interface LockPeriodData {
   lockPeriod: number // days
   lockPeriodName: string
@@ -34,7 +33,6 @@ interface LockPeriodData {
   suiAllocationBP: number // basis points (out of 10000)
 }
 
-// Lock period configuration from smart contract
 const VICTORY_LOCK_PERIODS: LockPeriodData[] = [
   {
     lockPeriod: 7,
@@ -100,8 +98,7 @@ export interface PoolTVLData {
   isActive: boolean
   priceSource: string
   lastUpdated: number
-  // Add this line:
-  aprBreakdown?: APRBreakdown  // Optional detailed APR data
+  aprBreakdown?: APRBreakdown
 }
 
 export interface LockerTVLData {
@@ -113,8 +110,7 @@ export interface LockerTVLData {
   tvlUSD: number
   estimatedAPR: number
   allocationPercentage: number
-  // Add this line:
-  aprBreakdown?: APRBreakdown  // Optional detailed APR data
+  aprBreakdown?: APRBreakdown
 }
 
 export interface SystemTVL {
@@ -158,20 +154,16 @@ interface FarmPoolInfo {
 }
 
 // ================================
-// EXTERNAL UTILITY FUNCTIONS (WORKING PATTERN)
+// EXTERNAL UTILITY FUNCTIONS
 // ================================
 
-/**
- * Parse blockchain value - EXTERNAL FUNCTION (not class method)
- * This matches your working parseBlockchainValue function
- */
 function parseBlockchainValue(value: any): any {
   try {
     if (Array.isArray(value) && value.length === 2 && typeof value[1] === 'string') {
       const [dataArray, typeStr] = value
 
       if (typeStr.startsWith('u') && Array.isArray(dataArray)) {
-        return parseU256ByteArray(dataArray)  // ✅ EXTERNAL function call
+        return parseU256ByteArray(dataArray)
       }
 
       if (typeStr === 'bool' && Array.isArray(dataArray)) {
@@ -195,9 +187,6 @@ function parseBlockchainValue(value: any): any {
   }
 }
 
-/**
- * Parse U256 byte array - EXTERNAL FUNCTION (not class method)
- */
 function parseU256ByteArray(byteArray: number[]): bigint {
   if (!Array.isArray(byteArray) || byteArray.length === 0) {
     return 0n
@@ -226,38 +215,43 @@ export class TVLAPRService {
   private static cacheExpiry = 5 * 60 * 1000 // 5 minutes
   private static currentAccount: { address: string } | null = null
   
-  // Reduced logging - only show important messages
+  // Enhanced logging with pool staking details
   private static logger = {
     info: (msg: string, data?: any) => console.log(`[TVL-APR] ${msg}`, data || ''),
     error: (msg: string, error?: any) => console.error(`[TVL-APR ERROR] ${msg}`, error || ''),
     warn: (msg: string, data?: any) => console.warn(`[TVL-APR WARN] ${msg}`, data || ''),
     debug: (msg: string, data?: any) => {
-      // Only show critical debug messages
-      if (msg.includes('CRITICAL') || msg.includes('SUCCESS') || msg.includes('TVL')) {
+      if (msg.includes('CRITICAL') || msg.includes('SUCCESS') || msg.includes('TVL') || msg.includes('STAKED') || msg.includes('APR')) {
         console.debug(`[TVL-APR DEBUG] ${msg}`, data || '')
       }
+    },
+    // New: Pool-specific logging
+    pool: (poolName: string, msg: string, data?: any) => console.log(`[POOL-${poolName}] ${msg}`, data || ''),
+    staking: (poolName: string, amount: string, formattedAmount: number, tvlUSD: number) => {
+      console.log(`[STAKING-INFO] ${poolName}:`, {
+        rawStaked: amount,
+        formattedStaked: formattedAmount.toLocaleString(),
+        tvlUSD: `$${tvlUSD.toLocaleString()}`,
+        hasStake: formattedAmount > 0
+      })
     }
   }
 
   // ================================
-  // MAIN ENTRY POINTS
+  // MAIN ENTRY POINTS - FIXED TO USE ENHANCED METHODS
   // ================================
 
-  /**
-   * Method to be called from React component with account
-   */
   static async getSystemTVLWithAccount(account: { address: string }): Promise<SystemTVL> {
-    // Store account globally for use in other methods
     this.currentAccount = account
     return await this.getSystemTVL()
   }
 
   /**
-   * Main system TVL calculation
+   * ✅ FIXED: Main system TVL calculation now uses enhanced methods
    */
   static async getSystemTVL(): Promise<SystemTVL> {
     const startTime = Date.now()
-    this.logger.info('Starting system TVL calculation')
+    this.logger.info('🚀 Starting ENHANCED system TVL calculation with real APR calculations')
 
     const errors: string[] = []
     const warnings: string[] = []
@@ -265,30 +259,45 @@ export class TVLAPRService {
     let poolsProcessed = 0
 
     try {
-      // Step 1: Discover farm pools using working pattern
-      this.logger.info('Discovering farm pools...')
+      // Step 1: Check emission system availability
+      this.logger.info('🔍 Checking emission system availability...')
+      const emissionCheck = await this.debugAPRCalculation()
+      if (!emissionCheck.emissionDataAvailable) {
+        warnings.push('Emission system not available - APRs may be inaccurate')
+        this.logger.warn('⚠️ Emission system check failed:', emissionCheck.errors)
+      } else {
+        this.logger.info('✅ Emission system available:', {
+          currentWeek: emissionCheck.currentWeek,
+          victoryPrice: emissionCheck.victoryPrice,
+          lpEmissionRate: emissionCheck.emissionRates?.lpPerSecond || 'N/A',
+          singleEmissionRate: emissionCheck.emissionRates?.singlePerSecond || 'N/A'
+        })
+      }
+
+      // Step 2: Discover farm pools
+      this.logger.info('🔍 Discovering farm pools...')
       const farmPools = await this.discoverFarmPoolsFixed()
-      this.logger.info(`Discovered ${farmPools.length} farm pools`)
+      this.logger.info(`📊 Discovered ${farmPools.length} farm pools`)
 
       if (farmPools.length === 0) {
         warnings.push('No active farm pools found')
       }
 
-      // Step 2: Update prices
-      this.logger.info('Updating token prices...')
+      // Step 3: Update prices
+      this.logger.info('💰 Updating token prices...')
       pricesUpdated = await TVLAPRService.updatePricesForFarmPools(farmPools)
-      this.logger.info(`Updated ${pricesUpdated} token prices`)
+      this.logger.info(`✅ Updated ${pricesUpdated} token prices`)
 
-      // Step 3: Calculate farm TVL
-      this.logger.info('Calculating farm TVL...')
-      const farmTVL = await TVLAPRService.calculateFarmTVLFromPools(farmPools)
+      // Step 4: ✅ FIXED: Use enhanced farm TVL calculation
+      this.logger.info('📈 Calculating farm TVL with ENHANCED APR calculations...')
+      const farmTVL = await TVLAPRService.calculateFarmTVLFromPoolsEnhanced(farmPools)
       poolsProcessed = farmPools.length
 
-      // Step 4: Calculate locker TVL
-      this.logger.info('Calculating locker TVL...')
-      const lockerTVL = await TVLAPRService.calculateLockerTVL()
+      // Step 5: ✅ FIXED: Use enhanced locker TVL calculation  
+      this.logger.info('🔒 Calculating locker TVL with ENHANCED multi-period APRs...')
+      const lockerTVL = await TVLAPRService.calculateLockerTVLEnhanced()
 
-      // Step 5: Calculate system totals
+      // Step 6: Calculate system totals
       const totalTVL = farmTVL.totalFarmTVL + lockerTVL.totalLockerTVL
       const farmPercentage = totalTVL > 0 ? (farmTVL.totalFarmTVL / totalTVL) * 100 : 0
       const lockerPercentage = totalTVL > 0 ? (lockerTVL.totalLockerTVL / totalTVL) * 100 : 0
@@ -311,49 +320,63 @@ export class TVLAPRService {
         }
       }
 
-      this.logger.info(`System TVL calculation completed in ${Date.now() - startTime}ms`, {
+      // ✅ Enhanced final logging with APR breakdown
+      this.logger.info(`🎉 ENHANCED System TVL calculation completed in ${Date.now() - startTime}ms`)
+      this.logger.info('📊 FINAL SYSTEM SUMMARY:', {
         totalTVL: `$${totalTVL.toLocaleString()}`,
-        farmTVL: `$${farmTVL.totalFarmTVL.toLocaleString()}`,
-        lockerTVL: `$${lockerTVL.totalLockerTVL.toLocaleString()}`,
-        poolsProcessed
+        farmTVL: `$${farmTVL.totalFarmTVL.toLocaleString()} (${farmPercentage.toFixed(1)}%)`,
+        lockerTVL: `$${lockerTVL.totalLockerTVL.toLocaleString()} (${lockerPercentage.toFixed(1)}%)`,
+        poolsProcessed,
+        avgFarmAPR: farmTVL.lpPools.length + farmTVL.singlePools.length > 0 
+          ? `${([...farmTVL.lpPools, ...farmTVL.singlePools].reduce((sum, p) => sum + p.apr, 0) / 
+              (farmTVL.lpPools.length + farmTVL.singlePools.length)).toFixed(1)}%`
+          : '0%',
+        errors: errors.length,
+        warnings: warnings.length
       })
 
       return result
 
     } catch (error) {
-      this.logger.error('Failed to calculate system TVL', error)
+      this.logger.error('💥 CRITICAL: Enhanced system TVL calculation failed', error)
       throw error
     }
   }
 
   // ================================
-  // FARM POOL DISCOVERY (USING YOUR WORKING PATTERN)
+  // ✅ ENHANCED FARM POOL DISCOVERY WITH DETAILED STAKING LOGS
   // ================================
 
   static async discoverFarmPoolsFixed(): Promise<FarmPoolInfo[]> {
     try {
-      this.logger.info('Using event-based pool discovery')
+      this.logger.info('🔍 Using event-based pool discovery with enhanced staking logging')
 
       const { pools } = await EventBasedPoolService.getAllPools()
-      this.logger.info(`Found ${pools.length} pools from events`)
+      this.logger.info(`📋 Found ${pools.length} pools from events`)
       
       const farmPools: FarmPoolInfo[] = []
       const poolErrors: Array<{pool: string, error: string}> = []
       
-      // Use current account or fallback to dummy address
       const senderAddress = this.currentAccount?.address || 
         '0x0000000000000000000000000000000000000000000000000000000000000000'
       
       for (const [index, pool] of pools.entries()) {
         try {
-          this.logger.info(`🔍 Processing pool ${index + 1}/${pools.length}: ${pool.name} (${pool.type})`)
+          this.logger.pool(pool.name, `Processing pool ${index + 1}/${pools.length} (${pool.type})`)
           
-          // ✅ FIXED: Get pool info with better error handling
           const poolInfo = await this.getFarmPoolInfoWorking(pool.typeName, senderAddress)
           
           if (poolInfo && poolInfo.totalStakedBigInt !== undefined) {
-            // Accept pools even with 0 stake for debugging
             const totalStaked = poolInfo.totalStakedBigInt.toString()
+            const totalStakedFormatted = parseFloat(totalStaked) / Math.pow(10, 9)
+            
+            // ✅ Enhanced staking logging
+            this.logger.staking(
+              pool.name, 
+              totalStaked, 
+              totalStakedFormatted,
+              0 // TVL calculated later
+            )
             
             farmPools.push({
               poolId: pool.id,
@@ -362,34 +385,42 @@ export class TVLAPRService {
               tokenType: pool.typeName,
               totalStaked: totalStaked,
               allocationPoints: pool.allocationPoints,
-              isActive: poolInfo.active !== false, // Default to true if undefined
+              isActive: poolInfo.active !== false,
               pairId: pool.type === 'LP' ? await this.findPairIdWorking(pool.typeName, senderAddress) : undefined
             })
             
-            this.logger.info(`✅ Successfully processed pool: ${pool.name}`, {
+            this.logger.pool(pool.name, '✅ Successfully processed', {
               type: pool.type,
-              totalStaked: totalStaked,
+              totalStaked: `${totalStakedFormatted.toLocaleString()} tokens`,
+              allocationPoints: pool.allocationPoints,
               active: poolInfo.active,
               hasStake: poolInfo.totalStakedBigInt > 0n
             })
           } else {
-            this.logger.warn(`❌ Failed to get pool info for ${pool.name}`)
+            this.logger.pool(pool.name, '❌ Failed to get pool info')
             poolErrors.push({pool: pool.name, error: 'Failed to get pool info'})
           }
         } catch (error) {
-          this.logger.error(`❌ Error processing pool ${pool.name}:`, error)
+          this.logger.pool(pool.name, '💥 Error processing pool:', error)
           poolErrors.push({pool: pool.name, error: String(error)})
         }
       }
 
-      // ✅ IMPROVED: Show detailed summary
-      this.logger.info(`📊 Pool Discovery Summary:`, {
+      // Enhanced summary with staking details
+      const totalStakedPools = farmPools.filter(p => BigInt(p.totalStaked) > 0n)
+      const lpPoolsWithStake = farmPools.filter(p => p.poolType === 'LP' && BigInt(p.totalStaked) > 0n)
+      const singlePoolsWithStake = farmPools.filter(p => p.poolType === 'Single' && BigInt(p.totalStaked) > 0n)
+
+      this.logger.info(`📊 ENHANCED Pool Discovery Summary:`, {
         totalFound: pools.length,
         successfullyProcessed: farmPools.length,
         errors: poolErrors.length,
         lpPools: farmPools.filter(p => p.poolType === 'LP').length,
         singlePools: farmPools.filter(p => p.poolType === 'Single').length,
-        poolsWithStake: farmPools.filter(p => BigInt(p.totalStaked) > 0n).length
+        poolsWithStake: totalStakedPools.length,
+        lpPoolsWithStake: lpPoolsWithStake.length,
+        singlePoolsWithStake: singlePoolsWithStake.length,
+        emptyPools: farmPools.length - totalStakedPools.length
       })
 
       if (poolErrors.length > 0) {
@@ -408,7 +439,458 @@ export class TVLAPRService {
   }
 
   // ================================
-  // POOL INFO USING YOUR WORKING PATTERN
+  // ✅ EMISSION-BASED APR CALCULATIONS 
+  // ================================
+
+  /**
+   * Get current emission data for APR calculations
+   */
+  static async getCurrentEmissionData(): Promise<{
+    currentWeek: number
+    emissionRates: any
+    victoryPriceUSD: number
+  } | null> {
+    try {
+      // Get emission start time and current time
+      const emissionConfig = await EmissionService.fetchEmissionConfig()
+      const currentTimestamp = Math.floor(Date.now() / 1000)
+      
+      if (emissionConfig.emissionStartTimestamp === 0) {
+        this.logger.warn('⚠️ Emissions not started yet')
+        return null
+      }
+
+      // Calculate current week using tokenomics
+      const tokenomicsSnapshot = calculateTokenomicsSnapshot(
+        emissionConfig.emissionStartTimestamp, 
+        currentTimestamp
+      )
+      
+      const currentWeek = tokenomicsSnapshot.currentWeek
+      if (currentWeek === 0) {
+        this.logger.warn('⚠️ Current week is 0, emissions may not be active')
+        return null
+      }
+
+      // Get emission rates for this week
+      const emissionRates = getCurrentEmissionRates(currentWeek)
+      
+      // Get Victory price
+      const victoryPrice = await this.getTokenPrice('VICTORY', CONSTANTS.VICTORY_TOKEN.TYPE)
+      
+      this.logger.debug('✅ Current emission data retrieved:', {
+        currentWeek,
+        emissionRates: {
+          lpPerSecond: emissionRates.lpPerSecond,
+          singlePerSecond: emissionRates.singlePerSecond,
+          victoryStakingPerSecond: emissionRates.victoryStakingPerSecond
+        },
+        victoryPriceUSD: victoryPrice.usdPrice
+      })
+
+      return {
+        currentWeek,
+        emissionRates,
+        victoryPriceUSD: victoryPrice.usdPrice
+      }
+
+    } catch (error) {
+      this.logger.error('❌ Error getting current emission data:', error)
+      return null
+    }
+  }
+
+  /**
+   * Get total allocation points for a pool type
+   */
+  static async getTotalAllocationPoints(poolType: 'LP' | 'Single'): Promise<number> {
+    try {
+      const { pools: allPools } = await EventBasedPoolService.getAllPools()
+      const poolsOfType = allPools.filter(p => p.type === poolType && p.isActive)
+      const totalAllocPoints = poolsOfType.reduce((sum, p) => sum + p.allocationPoints, 0)
+      
+      this.logger.debug(`📊 Total ${poolType} allocation points: ${totalAllocPoints}`)
+      return totalAllocPoints
+      
+    } catch (error) {
+      this.logger.error(`❌ Error getting total ${poolType} allocation points:`, error)
+      return 1 // Fallback to prevent division by zero
+    }
+  }
+
+  /**
+   * ✅ CORE: Calculate accurate pool APR using emission data
+   */
+  static async calculatePoolAPRFromEmissions(
+    poolInfo: FarmPoolInfo,
+    tvlUSD: number
+  ): Promise<APRBreakdown> {
+    this.logger.debug(`🔢 Calculating APR for ${poolInfo.poolName}`, {
+      poolType: poolInfo.poolType,
+      allocationPoints: poolInfo.allocationPoints,
+      tvlUSD: `$${tvlUSD.toLocaleString()}`,
+      isActive: poolInfo.isActive
+    })
+
+    try {
+      if (tvlUSD <= 0 || !poolInfo.isActive) {
+        this.logger.warn(`⚠️ ${poolInfo.poolName}: Zero TVL or inactive - returning 0% APR`)
+        return {
+          baseAPR: 0, bonusAPR: 0, totalAPR: 0,
+          victoryRewardsPerSecond: 0, victoryRewardsPerDay: 0, victoryRewardsAnnual: 0,
+          dailyRewardsUSD: 0, annualRewardsUSD: 0,
+          rewardTokens: ['VICTORY'], emissionWeek: 0, poolShare: 0
+        }
+      }
+
+      // 1. Get current emission data
+      const emissionData = await this.getCurrentEmissionData()
+      if (!emissionData) {
+        this.logger.warn(`⚠️ ${poolInfo.poolName}: No emission data available - using fallback APR calculation`)
+        
+        // Fallback to simple calculation when emissions not available
+        const fallbackAPR = this.calculateFallbackAPR(poolInfo.allocationPoints, tvlUSD)
+        return {
+          baseAPR: fallbackAPR, bonusAPR: 0, totalAPR: fallbackAPR,
+          victoryRewardsPerSecond: 0, victoryRewardsPerDay: 0, victoryRewardsAnnual: 0,
+          dailyRewardsUSD: 0, annualRewardsUSD: 0,
+          rewardTokens: ['VICTORY'], emissionWeek: 0, poolShare: 0
+        }
+      }
+
+      const { currentWeek, emissionRates, victoryPriceUSD } = emissionData
+
+      // 2. Get pool type emission rate and total allocation
+      let poolTypeEmissionPerSecond: number
+      let totalAllocPoints: number
+
+      if (poolInfo.poolType === 'LP') {
+        poolTypeEmissionPerSecond = parseFloat(emissionRates.lpPerSecond)
+        totalAllocPoints = await this.getTotalAllocationPoints('LP')
+      } else {
+        poolTypeEmissionPerSecond = parseFloat(emissionRates.singlePerSecond)
+        totalAllocPoints = await this.getTotalAllocationPoints('Single')
+      }
+
+      // 3. Calculate this pool's share
+      const poolShare = totalAllocPoints > 0 ? poolInfo.allocationPoints / totalAllocPoints : 0
+      const poolVictoryPerSecond = poolTypeEmissionPerSecond * poolShare
+
+      // 4. Calculate time-based rewards
+      const victoryRewardsPerDay = poolVictoryPerSecond * 86400 // seconds per day
+      const victoryRewardsAnnual = victoryRewardsPerDay * 365
+
+      const dailyRewardsUSD = victoryRewardsPerDay * victoryPriceUSD
+      const annualRewardsUSD = victoryRewardsAnnual * victoryPriceUSD
+
+      // 5. Calculate base APR
+      const baseAPR = (annualRewardsUSD / tvlUSD) * 100
+
+      // 6. Calculate bonus APR (early phase bonus)
+      let bonusAPR = 0
+      if (currentWeek <= 4) {
+        bonusAPR = baseAPR * 0.15 // 15% bonus during bootstrap phase
+      } else if (currentWeek <= 12) {
+        bonusAPR = baseAPR * 0.05 // 5% bonus during early post-bootstrap
+      }
+
+      const totalAPR = baseAPR + bonusAPR
+
+      const aprBreakdown: APRBreakdown = {
+        baseAPR,
+        bonusAPR,
+        totalAPR,
+        victoryRewardsPerSecond: poolVictoryPerSecond,
+        victoryRewardsPerDay,
+        victoryRewardsAnnual,
+        dailyRewardsUSD,
+        annualRewardsUSD,
+        rewardTokens: ['VICTORY'],
+        emissionWeek: currentWeek,
+        poolShare
+      }
+
+      this.logger.info(`📈 APR calculated for ${poolInfo.poolName}:`, {
+        poolType: poolInfo.poolType,
+        allocationPoints: poolInfo.allocationPoints,
+        totalAllocPoints,
+        poolShare: `${(poolShare * 100).toFixed(2)}%`,
+        victoryPerSecond: poolVictoryPerSecond.toFixed(6),
+        dailyVictoryRewards: victoryRewardsPerDay.toFixed(2),
+        victoryPrice: `$${victoryPriceUSD}`,
+        tvlUSD: `$${tvlUSD.toLocaleString()}`,
+        baseAPR: `${baseAPR.toFixed(2)}%`,
+        bonusAPR: `+${bonusAPR.toFixed(2)}%`,
+        totalAPR: `${totalAPR.toFixed(2)}%`,
+        emissionWeek: currentWeek
+      })
+
+      return aprBreakdown
+
+    } catch (error) {
+      this.logger.error(`❌ Error calculating APR for ${poolInfo.poolName}:`, error)
+      
+      // Return fallback APR on error
+      const fallbackAPR = this.calculateFallbackAPR(poolInfo.allocationPoints, tvlUSD)
+      return {
+        baseAPR: fallbackAPR, bonusAPR: 0, totalAPR: fallbackAPR,
+        victoryRewardsPerSecond: 0, victoryRewardsPerDay: 0, victoryRewardsAnnual: 0,
+        dailyRewardsUSD: 0, annualRewardsUSD: 0,
+        rewardTokens: ['VICTORY'], emissionWeek: 0, poolShare: 0
+      }
+    }
+  }
+
+  /**
+   * Fallback APR calculation when emissions not available
+   */
+  static calculateFallbackAPR(allocationPoints: number, tvlUSD: number): number {
+    if (tvlUSD === 0) return 0
+    
+    // More reasonable fallback calculation
+    const baseAPR = 25 // 25% base APR
+    const allocationMultiplier = Math.max(allocationPoints / 1000, 0.1)
+    const calculatedAPR = baseAPR * allocationMultiplier
+    
+    this.logger.warn(`⚠️ Using fallback APR calculation: ${calculatedAPR.toFixed(2)}% (allocation: ${allocationPoints}, multiplier: ${allocationMultiplier.toFixed(2)})`)
+    
+    return Math.min(calculatedAPR, 300) // Cap at 300%
+  }
+
+  // ================================
+  // ✅ ENHANCED FARM TVL CALCULATIONS
+  // ================================
+
+  /**
+   * ✅ Enhanced farm TVL calculation with real APRs and detailed logging
+   */
+  static async calculateFarmTVLFromPoolsEnhanced(farmPools: FarmPoolInfo[]): Promise<SystemTVL['farmTVL']> {
+    this.logger.info('📈 Starting ENHANCED farm TVL calculation with emission-based APRs')
+    
+    const lpPools: PoolTVLData[] = []
+    const singlePools: PoolTVLData[] = []
+
+    for (const pool of farmPools) {
+      try {
+        if (pool.poolType === 'LP') {
+          const lpTVL = await this.calculateLPPoolTVLEnhanced(pool)
+          if (lpTVL) {
+            lpPools.push(lpTVL)
+            this.logger.info(`📊 Enhanced LP Pool: ${pool.poolName}`, {
+              tvl: `$${lpTVL.tvlUSD.toLocaleString()}`,
+              apr: `${lpTVL.apr.toFixed(2)}%`,
+              staked: `${lpTVL.totalStakedFormatted.toLocaleString()} tokens`,
+              baseAPR: lpTVL.aprBreakdown?.baseAPR.toFixed(2) + '%' || 'N/A',
+              bonusAPR: lpTVL.aprBreakdown?.bonusAPR.toFixed(2) + '%' || 'N/A'
+            })
+          }
+        } else {
+          const singleTVL = await this.calculateSinglePoolTVLEnhanced(pool)
+          if (singleTVL) {
+            singlePools.push(singleTVL)
+            this.logger.info(`📊 Enhanced Single Pool: ${pool.poolName}`, {
+              tvl: `$${singleTVL.tvlUSD.toLocaleString()}`,
+              apr: `${singleTVL.apr.toFixed(2)}%`,
+              staked: `${singleTVL.totalStakedFormatted.toLocaleString()} tokens`,
+              tokenPrice: `$${singleTVL.tokenPrice}`,
+              baseAPR: singleTVL.aprBreakdown?.baseAPR.toFixed(2) + '%' || 'N/A',
+              bonusAPR: singleTVL.aprBreakdown?.bonusAPR.toFixed(2) + '%' || 'N/A'
+            })
+          }
+        }
+      } catch (error) {
+        this.logger.error(`❌ Error calculating enhanced TVL for pool ${pool.poolName}`, error)
+      }
+    }
+
+    const totalLPTVL = lpPools.reduce((sum, pool) => sum + pool.tvlUSD, 0)
+    const totalSingleTVL = singlePools.reduce((sum, pool) => sum + pool.tvlUSD, 0)
+    const totalFarmTVL = totalLPTVL + totalSingleTVL
+
+    // Calculate average APRs
+    const avgLPAPR = lpPools.length > 0 ? lpPools.reduce((sum, p) => sum + p.apr, 0) / lpPools.length : 0
+    const avgSingleAPR = singlePools.length > 0 ? singlePools.reduce((sum, p) => sum + p.apr, 0) / singlePools.length : 0
+
+    this.logger.info('✅ Enhanced Farm TVL calculated with REAL emission-based APRs', {
+      lpPools: lpPools.length,
+      singlePools: singlePools.length,
+      totalLPTVL: `$${totalLPTVL.toLocaleString()}`,
+      totalSingleTVL: `$${totalSingleTVL.toLocaleString()}`,
+      totalFarmTVL: `$${totalFarmTVL.toLocaleString()}`,
+      avgLPAPR: `${avgLPAPR.toFixed(2)}%`,
+      avgSingleAPR: `${avgSingleAPR.toFixed(2)}%`,
+      poolsWithRealAPR: [...lpPools, ...singlePools].filter(p => p.aprBreakdown?.emissionWeek > 0).length
+    })
+
+    return {
+      lpPools,
+      singlePools,
+      totalLPTVL,
+      totalSingleTVL,
+      totalFarmTVL
+    }
+  }
+
+  /**
+   * ✅ Enhanced LP pool TVL calculation with accurate APR and staking logs
+   */
+  static async calculateLPPoolTVLEnhanced(pool: FarmPoolInfo): Promise<PoolTVLData | null> {
+    try {
+      if (!pool.pairId) {
+        this.logger.warn(`❌ No pair ID for LP pool ${pool.poolName}`)
+        return null
+      }
+
+      // Get LP token info
+      const lpInfo = await this.getLPTokenInfo(pool.pairId, pool.tokenType)
+      if (!lpInfo) {
+        this.logger.warn(`❌ Could not get LP token info for ${pool.poolName}`)
+        return null
+      }
+
+      // Calculate TVL with enhanced logging
+      const totalStakedFormatted = parseFloat(pool.totalStaked) / Math.pow(10, 9)
+      const tvlUSD = totalStakedFormatted * lpInfo.lpTokenPrice
+
+      // ✅ Enhanced staking logging with TVL
+      this.logger.staking(pool.poolName, pool.totalStaked, totalStakedFormatted, tvlUSD)
+      
+      // Log LP composition
+      this.logger.debug(`🔍 LP Token Composition for ${pool.poolName}:`, {
+        token0: `${lpInfo.token0Symbol}: $${lpInfo.token0Price}`,
+        token1: `${lpInfo.token1Symbol}: $${lpInfo.token1Price}`,
+        lpTokenPrice: `$${lpInfo.lpTokenPrice}`,
+        totalSupply: lpInfo.totalSupply
+      })
+
+      // ✅ Calculate accurate APR using emission data
+      const aprBreakdown = await this.calculatePoolAPRFromEmissions(pool, tvlUSD)
+
+      return {
+        poolId: pool.poolId,
+        poolName: pool.poolName,
+        poolType: 'LP',
+        tokenType: pool.tokenType,
+        totalStaked: pool.totalStaked,
+        totalStakedFormatted,
+        tokenPrice: lpInfo.lpTokenPrice,
+        tvlUSD,
+        apr: aprBreakdown.totalAPR,
+        allocationPoints: pool.allocationPoints,
+        isActive: pool.isActive,
+        priceSource: 'DEX',
+        lastUpdated: Date.now(),
+        aprBreakdown: aprBreakdown
+      }
+
+    } catch (error) {
+      this.logger.error(`❌ Error calculating enhanced LP pool TVL for ${pool.poolName}`, error)
+      return null
+    }
+  }
+
+  /**
+   * ✅ Enhanced single pool TVL calculation with accurate APR and staking logs
+   */
+  static async calculateSinglePoolTVLEnhanced(pool: FarmPoolInfo): Promise<PoolTVLData | null> {
+    try {
+      const symbol = this.extractTokenSymbol(pool.tokenType)
+      const priceData = await this.getTokenPrice(symbol, pool.tokenType)
+
+      // Calculate TVL with enhanced logging
+      const totalStakedFormatted = parseFloat(pool.totalStaked) / Math.pow(10, 9)
+      const tvlUSD = totalStakedFormatted * priceData.usdPrice
+
+      // ✅ Enhanced staking logging with TVL
+      this.logger.staking(pool.poolName, pool.totalStaked, totalStakedFormatted, tvlUSD)
+      
+      // Log token pricing details
+      this.logger.debug(`💰 Token Pricing for ${pool.poolName}:`, {
+        symbol,
+        tokenPrice: `$${priceData.usdPrice}`,
+        priceSource: priceData.source,
+        confidence: priceData.confidence
+      })
+
+      // ✅ Calculate accurate APR using emission data
+      const aprBreakdown = await this.calculatePoolAPRFromEmissions(pool, tvlUSD)
+
+      return {
+        poolId: pool.poolId,
+        poolName: pool.poolName,
+        poolType: 'Single',
+        tokenType: pool.tokenType,
+        totalStaked: pool.totalStaked,
+        totalStakedFormatted,
+        tokenPrice: priceData.usdPrice,
+        tvlUSD,
+        apr: aprBreakdown.totalAPR,
+        allocationPoints: pool.allocationPoints,
+        isActive: pool.isActive,
+        priceSource: priceData.source,
+        lastUpdated: Date.now(),
+        aprBreakdown: aprBreakdown
+      }
+
+    } catch (error) {
+      this.logger.error(`❌ Error calculating enhanced single pool TVL for ${pool.poolName}`, error)
+      return null
+    }
+  }
+
+  // ================================
+  // ✅ DEBUG METHODS
+  // ================================
+
+  /**
+   * Debug APR calculation system
+   */
+  static async debugAPRCalculation(): Promise<{
+    emissionDataAvailable: boolean
+    currentWeek: number
+    emissionRates: any
+    victoryPrice: number
+    errors: string[]
+  }> {
+    const errors: string[] = []
+    
+    try {
+      // Test emission data availability
+      const emissionData = await this.getCurrentEmissionData()
+      
+      if (!emissionData) {
+        errors.push('getCurrentEmissionData() returned null')
+        return {
+          emissionDataAvailable: false,
+          currentWeek: 0,
+          emissionRates: null,
+          victoryPrice: 0,
+          errors
+        }
+      }
+      
+      return {
+        emissionDataAvailable: true,
+        currentWeek: emissionData.currentWeek,
+        emissionRates: emissionData.emissionRates,
+        victoryPrice: emissionData.victoryPriceUSD,
+        errors
+      }
+      
+    } catch (error) {
+      errors.push(`Error in emission data: ${String(error)}`)
+      return {
+        emissionDataAvailable: false,
+        currentWeek: 0,
+        emissionRates: null,
+        victoryPrice: 0,
+        errors
+      }
+    }
+  }
+
+  // ================================
+  // REST OF THE METHODS (Same as before but with enhanced logging)
   // ================================
 
   static async getFarmPoolInfoWorking(typeString: string, senderAddress: string): Promise<{
@@ -416,41 +898,30 @@ export class TVLAPRService {
     active?: boolean
   } | null> {
     try {
-      // ✅ EXACT COPY of your working pattern
       const tx = new Transaction()
       tx.moveCall({
         target: `${CONSTANTS.PACKAGE_ID}::farm::get_pool_info`,
-        arguments: [tx.object(CONSTANTS.FARM_ID)],  // ✅ arguments first
-        typeArguments: [typeString]  // ✅ typeArguments second
+        arguments: [tx.object(CONSTANTS.FARM_ID)],
+        typeArguments: [typeString]
       })
       
       const result = await suiClient.devInspectTransactionBlock({
         transactionBlock: tx,
-        sender: senderAddress  // ✅ real sender address
+        sender: senderAddress
       })
       
       if (result?.results?.[0]?.returnValues) {
         const rawValues = result.results[0].returnValues
-        const parsedValues = rawValues.map(parseBlockchainValue)  // ✅ external function
+        const parsedValues = rawValues.map(parseBlockchainValue)
         
         const details: any = {}
         
-        // Extract total staked amount which is typically the first value
         if (parsedValues.length > 0) {
           details.totalStakedBigInt = parsedValues[0]
-          // Extract active status if available (typically the 4th value)
           if (parsedValues.length > 3) {
             details.active = Boolean(parsedValues[3])
           }
         }
-        
-        this.logger.debug('CRITICAL: Combined pool details', {
-          typeString: typeString.substring(0, 50) + '...',
-          totalStakedBigInt: typeof details.totalStakedBigInt === 'bigint' 
-            ? details.totalStakedBigInt.toString() 
-            : details.totalStakedBigInt,
-          active: details.active
-        })
         
         return details
       }
@@ -461,10 +932,6 @@ export class TVLAPRService {
       return null
     }
   }
-
-  // ================================
-  // PAIR ID DISCOVERY USING WORKING PATTERN
-  // ================================
 
   static async findPairIdWorking(lpTokenType: string, senderAddress: string): Promise<string | undefined> {
     try {
@@ -480,17 +947,16 @@ export class TVLAPRService {
 
       const [sortedToken0, sortedToken1] = this.sortTokenTypes(token0, token1)
 
-      // ✅ Use your working pattern
       const tx = new Transaction()
       tx.moveCall({
         target: `${CONSTANTS.PACKAGE_ID}::factory::get_pair`,
-        arguments: [tx.object(CONSTANTS.FACTORY_ID)],  // ✅ arguments first
-        typeArguments: [sortedToken0, sortedToken1]  // ✅ typeArguments second
+        arguments: [tx.object(CONSTANTS.FACTORY_ID)],
+        typeArguments: [sortedToken0, sortedToken1]
       })
 
       const result = await suiClient.devInspectTransactionBlock({
         transactionBlock: tx,
-        sender: senderAddress  // ✅ real sender
+        sender: senderAddress
       })
 
       if (result?.results?.[0]?.returnValues?.[0]?.[0]) {
@@ -515,14 +981,13 @@ export class TVLAPRService {
   }
 
   // ================================
-  // PRICE DISCOVERY METHODS
+  // PRICE DISCOVERY METHODS (Same as before)
   // ================================
 
   static async updatePricesForFarmPools(farmPools: FarmPoolInfo[]): Promise<number> {
     let pricesUpdated = 0
     const uniqueTokens = new Set<string>()
 
-    // Collect all unique tokens from farm pools
     for (const pool of farmPools) {
       if (pool.poolType === 'Single') {
         uniqueTokens.add(pool.tokenType)
@@ -537,10 +1002,8 @@ export class TVLAPRService {
 
     this.logger.info(`Need to price ${uniqueTokens.size} unique tokens from farm pools`)
 
-    // Price discovery strategy for farm pool tokens
     const tokensArray = Array.from(uniqueTokens)
     
-    // 1. First priority: Get SUI price (base currency)
     const suiTokens = tokensArray.filter(token => this.isSUIToken(token))
     for (const suiToken of suiTokens) {
       try {
@@ -551,7 +1014,6 @@ export class TVLAPRService {
       }
     }
 
-    // 2. Second priority: Get VICTORY price from DEX pairs
     const victoryTokens = tokensArray.filter(token => this.isVictoryToken(token))
     for (const victoryToken of victoryTokens) {
       try {
@@ -562,7 +1024,6 @@ export class TVLAPRService {
       }
     }
 
-    // 3. Third priority: Get other tokens
     const otherTokens = tokensArray.filter(token => 
       !this.isSUIToken(token) && !this.isVictoryToken(token)
     )
@@ -589,10 +1050,7 @@ export class TVLAPRService {
       return cached
     }
 
-    this.logger.debug(`Fetching price for ${symbol}`, { tokenType })
-
     try {
-      // 1. Try DEX first (from farm pool pairs)
       const dexPrice = await this.getPriceFromDEX(symbol, tokenType)
       if (dexPrice > 0) {
         const priceData: TokenPrice = {
@@ -604,11 +1062,9 @@ export class TVLAPRService {
           confidence: 'HIGH'
         }
         this.priceCache.set(cacheKey, priceData)
-        this.logger.debug(`Got DEX price for ${symbol}: $${dexPrice}`)
         return priceData
       }
 
-      // 2. Fallback to CoinGecko for major tokens
       const cgPrice = await this.getPriceFromCoinGecko(symbol)
       if (cgPrice > 0) {
         const priceData: TokenPrice = {
@@ -620,11 +1076,9 @@ export class TVLAPRService {
           confidence: 'MEDIUM'
         }
         this.priceCache.set(cacheKey, priceData)
-        this.logger.debug(`Got CoinGecko price for ${symbol}: $${cgPrice}`)
         return priceData
       }
 
-      // 3. Hardcoded fallback
       const hardcodedPrice = this.getHardcodedPrice(symbol)
       const priceData: TokenPrice = {
         symbol,
@@ -635,13 +1089,11 @@ export class TVLAPRService {
         confidence: 'LOW'
       }
       this.priceCache.set(cacheKey, priceData)
-      this.logger.warn(`Using hardcoded price for ${symbol}: $${hardcodedPrice}`)
       return priceData
 
     } catch (error) {
       this.logger.error(`Error fetching price for ${symbol}`, error)
       
-      // Return cached price if available, otherwise hardcoded
       if (cached) return cached
       
       return {
@@ -660,7 +1112,6 @@ export class TVLAPRService {
       const senderAddress = this.currentAccount?.address || 
         '0x0000000000000000000000000000000000000000000000000000000000000000'
 
-      // For VICTORY token, look for VICTORY/SUI pair in farm pools
       if (symbol === 'VICTORY' || this.isVictoryToken(tokenType || '')) {
         const suiPrice = await this.getPriceFromCoinGecko('SUI')
         if (suiPrice === 0) return 0
@@ -669,7 +1120,6 @@ export class TVLAPRService {
         return victoryInSui * suiPrice
       }
 
-      // For SUI, check if we have SUI/USDC pair in farm pools
       if (symbol === 'SUI' || this.isSUIToken(tokenType || '')) {
         return await this.getSuiPriceFromUSDCPairWorking(senderAddress)
       }
@@ -688,7 +1138,6 @@ export class TVLAPRService {
       
       const [sortedToken0, sortedToken1] = this.sortTokenTypes(victoryType, suiType)
       
-      // ✅ Use working pattern
       const tx = new Transaction()
       tx.moveCall({
         target: `${CONSTANTS.PACKAGE_ID}::factory::get_pair`,
@@ -708,7 +1157,6 @@ export class TVLAPRService {
             .map(b => b.toString(16).padStart(2, '0'))
             .join('')}`
           
-          // Get pair reserves
           const pairObject = await suiClient.getObject({
             id: pairId,
             options: { showContent: true }
@@ -733,7 +1181,6 @@ export class TVLAPRService {
                 suiReserve = reserve0
               }
 
-              // Calculate VICTORY price in SUI
               const victoryInSui = (Number(suiReserve) / Math.pow(10, 9)) / 
                                   (Number(victoryReserve) / Math.pow(10, 6))
               
@@ -765,7 +1212,6 @@ export class TVLAPRService {
         try {
           const [sortedToken0, sortedToken1] = this.sortTokenTypes(suiType, usdcType)
           
-          // ✅ Use working pattern
           const tx = new Transaction()
           tx.moveCall({
             target: `${CONSTANTS.PACKAGE_ID}::factory::get_pair`,
@@ -785,7 +1231,6 @@ export class TVLAPRService {
                 .map(b => b.toString(16).padStart(2, '0'))
                 .join('')}`
               
-              // Get pair reserves
               const pairObject = await suiClient.getObject({
                 id: pairId,
                 options: { showContent: true }
@@ -810,7 +1255,6 @@ export class TVLAPRService {
                     usdcReserve = reserve0
                   }
 
-                  // Calculate SUI price in USD
                   const suiPriceUSD = (Number(usdcReserve) / Math.pow(10, 6)) / 
                                      (Number(suiReserve) / Math.pow(10, 9))
                   
@@ -861,7 +1305,6 @@ export class TVLAPRService {
       const data = await response.json()
       const price = data[coinId]?.usd || 0
       
-      this.logger.debug(`CoinGecko price for ${symbol}: $${price}`)
       return price
     } catch (error) {
       this.logger.error(`CoinGecko API error for ${symbol}`, error)
@@ -871,7 +1314,7 @@ export class TVLAPRService {
 
   static getHardcodedPrice(symbol: string): number {
     const prices: Record<string, number> = {
-      'SUI': 3.81,  // Use current market price
+      'SUI': 3.81,
       'VICTORY': 0.05,
       'USDC': 1.00,
       'USDT': 1.00,
@@ -879,128 +1322,6 @@ export class TVLAPRService {
       'WETH': 2500
     }
     return prices[symbol.toUpperCase()] || 0
-  }
-
-  // ================================
-  // TVL CALCULATION METHODS
-  // ================================
-
-  static async calculateFarmTVLFromPools(farmPools: FarmPoolInfo[]): Promise<SystemTVL['farmTVL']> {
-    const lpPools: PoolTVLData[] = []
-    const singlePools: PoolTVLData[] = []
-
-    for (const pool of farmPools) {
-      try {
-        if (pool.poolType === 'LP') {
-          const lpTVL = await this.calculateLPPoolTVL(pool)
-          if (lpTVL) {
-            lpPools.push(lpTVL)
-            this.logger.debug(`LP Pool TVL: ${pool.poolName} = ${lpTVL.tvlUSD.toLocaleString()}`)
-          }
-        } else {
-          const singleTVL = await this.calculateSinglePoolTVL(pool)
-          if (singleTVL) {
-            singlePools.push(singleTVL)
-            this.logger.debug(`Single Pool TVL: ${pool.poolName} = ${singleTVL.tvlUSD.toLocaleString()}`)
-          }
-        }
-      } catch (error) {
-        this.logger.error(`Error calculating TVL for pool ${pool.poolName}`, error)
-      }
-    }
-
-    const totalLPTVL = lpPools.reduce((sum, pool) => sum + pool.tvlUSD, 0)
-    const totalSingleTVL = singlePools.reduce((sum, pool) => sum + pool.tvlUSD, 0)
-    const totalFarmTVL = totalLPTVL + totalSingleTVL
-
-    this.logger.info('Farm TVL calculated', {
-      lpPools: lpPools.length,
-      singlePools: singlePools.length,
-      totalLPTVL: `${totalLPTVL.toLocaleString()}`,
-      totalSingleTVL: `${totalSingleTVL.toLocaleString()}`,
-      totalFarmTVL: `${totalFarmTVL.toLocaleString()}`
-    })
-
-    return {
-      lpPools,
-      singlePools,
-      totalLPTVL,
-      totalSingleTVL,
-      totalFarmTVL
-    }
-  }
-
-  static async calculateLPPoolTVL(pool: FarmPoolInfo): Promise<PoolTVLData | null> {
-    try {
-      if (!pool.pairId) {
-        this.logger.warn(`No pair ID for LP pool ${pool.poolName}`)
-        return null
-      }
-
-      // Get LP token info
-      const lpInfo = await this.getLPTokenInfo(pool.pairId, pool.tokenType)
-      if (!lpInfo) return null
-
-      // Calculate TVL
-      const totalStakedFormatted = parseFloat(pool.totalStaked) / Math.pow(10, 9) // Assuming 9 decimals
-      const tvlUSD = totalStakedFormatted * lpInfo.lpTokenPrice
-
-      // Calculate APR (simplified)
-      const apr = this.calculatePoolAPR(pool.allocationPoints, tvlUSD)
-
-      return {
-        poolId: pool.poolId,
-        poolName: pool.poolName,
-        poolType: 'LP',
-        tokenType: pool.tokenType,
-        totalStaked: pool.totalStaked,
-        totalStakedFormatted,
-        tokenPrice: lpInfo.lpTokenPrice,
-        tvlUSD,
-        apr,
-        allocationPoints: pool.allocationPoints,
-        isActive: pool.isActive,
-        priceSource: 'DEX',
-        lastUpdated: Date.now()
-      }
-
-    } catch (error) {
-      this.logger.error(`Error calculating LP pool TVL for ${pool.poolName}`, error)
-      return null
-    }
-  }
-
-  static async calculateSinglePoolTVL(pool: FarmPoolInfo): Promise<PoolTVLData | null> {
-    try {
-      const symbol = this.extractTokenSymbol(pool.tokenType)
-      const priceData = await this.getTokenPrice(symbol, pool.tokenType)
-
-      const totalStakedFormatted = parseFloat(pool.totalStaked) / Math.pow(10, 9) // Assuming 9 decimals
-      const tvlUSD = totalStakedFormatted * priceData.usdPrice
-
-      // Calculate APR (simplified)
-      const apr = this.calculatePoolAPR(pool.allocationPoints, tvlUSD)
-
-      return {
-        poolId: pool.poolId,
-        poolName: pool.poolName,
-        poolType: 'Single',
-        tokenType: pool.tokenType,
-        totalStaked: pool.totalStaked,
-        totalStakedFormatted,
-        tokenPrice: priceData.usdPrice,
-        tvlUSD,
-        apr,
-        allocationPoints: pool.allocationPoints,
-        isActive: pool.isActive,
-        priceSource: priceData.source,
-        lastUpdated: Date.now()
-      }
-
-    } catch (error) {
-      this.logger.error(`Error calculating single pool TVL for ${pool.poolName}`, error)
-      return null
-    }
   }
 
   static async getLPTokenInfo(pairId: string, lpTokenType: string): Promise<LPTokenInfo | null> {
@@ -1012,11 +1333,9 @@ export class TVLAPRService {
     }
 
     try {
-      // Extract token types from LP token type
       const tokens = this.extractTokensFromLPType(lpTokenType)
       if (!tokens) return null
 
-      // Get pair reserves
       const pairObject = await suiClient.getObject({
         id: pairId,
         options: { showContent: true }
@@ -1035,7 +1354,6 @@ export class TVLAPRService {
         return null
       }
 
-      // Get token prices
       const token0Symbol = this.extractTokenSymbol(tokens.token0)
       const token1Symbol = this.extractTokenSymbol(tokens.token1)
       
@@ -1044,8 +1362,6 @@ export class TVLAPRService {
         this.getTokenPrice(token1Symbol, tokens.token1)
       ])
 
-      // Calculate LP token price
-      // LP Price = (reserve0 * price0 + reserve1 * price1) / totalSupply
       const reserve0Value = (parseFloat(reserve0) / Math.pow(10, 9)) * token0Price.usdPrice
       const reserve1Value = (parseFloat(reserve1) / Math.pow(10, 9)) * token1Price.usdPrice
       const totalLiquidity = reserve0Value + reserve1Value
@@ -1067,7 +1383,6 @@ export class TVLAPRService {
       }
 
       this.lpInfoCache.set(cacheKey, lpInfo)
-      this.logger.debug(`Calculated LP token price for ${token0Symbol}/${token1Symbol}: ${lpTokenPrice}`)
 
       return lpInfo
 
@@ -1077,78 +1392,117 @@ export class TVLAPRService {
     }
   }
 
-  static async calculateLockerTVL(): Promise<SystemTVL['lockerTVL']> {
+  static async calculateLockerTVLEnhanced(): Promise<SystemTVL['lockerTVL']> {
     try {
-      this.logger.info('🔒 Calculating locker TVL...')
+      this.logger.info('🔒 Calculating enhanced locker TVL with multi-period APRs...')
 
-      // Get locker config from TokenLockerService
       const lockerConfig = await TokenLockerService.fetchTokenLockerConfig()
-      this.logger.info('✅ Locker config received')
       
-      // Get VICTORY price - simplified to just USD price
-      this.logger.info('💰 Fetching VICTORY price...')
       const victoryPrice = await this.getTokenPrice('VICTORY', CONSTANTS.VICTORY_TOKEN.TYPE)
-      this.logger.info(`💰 VICTORY price: ${victoryPrice.usdPrice} (source: ${victoryPrice.source})`)
-
-      // Get SUI price for rewards pool
       const suiPrice = await this.getTokenPrice('SUI', '0x2::sui::SUI')
-      this.logger.info(`💰 SUI price: ${suiPrice.usdPrice} (source: ${suiPrice.source})`)
 
-      // ✅ SIMPLIFIED: Direct calculation from vault balances
       const vaultBalances = lockerConfig.vaultBalances || {}
-      
-      // SUI rewards pool (1 SUI = 1,000,000,000 in raw)
       const suiRewardsRaw = vaultBalances.suiRewards || '0'
-      const suiRewardsFormatted = parseFloat(suiRewardsRaw) / 1e9  // 9 decimals
-      const suiRewardsPool = suiRewardsFormatted * suiPrice.usdPrice
-      
-      this.logger.info(`🔷 SUI Rewards: ${suiRewardsRaw} raw = ${suiRewardsFormatted} SUI = ${suiRewardsPool}`)
-
-      // Victory rewards pool (1,086,678,795,198 = 1,086,678.795198 VICTORY)
       const victoryRewardsRaw = vaultBalances.victoryRewards || '0'
-      const victoryRewardsFormatted = parseFloat(victoryRewardsRaw) / 1e6  // 6 decimals  
-      const victoryRewardsPool = victoryRewardsFormatted * victoryPrice.usdPrice
-      
-      this.logger.info(`🏆 Victory Rewards: ${victoryRewardsRaw} raw = ${victoryRewardsFormatted} VICTORY = ${victoryRewardsPool}`)
-
-      // Locked tokens vault (18,600,590,903 = 18,600.590903 VICTORY)
       const lockedTokensRaw = vaultBalances.lockedTokens || '0'
-      const lockedTokensFormatted = parseFloat(lockedTokensRaw) / 1e6  // 6 decimals
-      const lockedTokensTVL = lockedTokensFormatted * victoryPrice.usdPrice
       
-      this.logger.info(`🔒 Locked Tokens: ${lockedTokensRaw} raw = ${lockedTokensFormatted} VICTORY = ${lockedTokensTVL}`)
+      const suiRewardsFormatted = parseFloat(suiRewardsRaw) / 1e9
+      const victoryRewardsFormatted = parseFloat(victoryRewardsRaw) / 1e6
+      const lockedTokensFormatted = parseFloat(lockedTokensRaw) / 1e6
+      
+      const suiRewardsPool = suiRewardsFormatted * suiPrice.usdPrice
+      const victoryRewardsPool = victoryRewardsFormatted * victoryPrice.usdPrice
+      const totalLockedTokensTVL = lockedTokensFormatted * victoryPrice.usdPrice
 
-      // ✅ TOTAL CALCULATION
-      const totalLockerTVL = lockedTokensTVL + victoryRewardsPool  // Only count actual locked tokens
-      const totalRewardsPool = suiRewardsPool + victoryRewardsPool  // Separate rewards
+      const poolStats = lockerConfig.poolStats || {}
+      const weekLockedRaw = poolStats.weekLocked || '0'
+      const threeMonthLockedRaw = poolStats.threeMonthLocked || '0' 
+      const yearLockedRaw = poolStats.yearLocked || '0'
+      const threeYearLockedRaw = poolStats.threeYearLocked || '0'
 
-      this.logger.info(`📊 LOCKER TVL SUMMARY:`)
-      this.logger.info(`   • Locked Tokens TVL: ${lockedTokensTVL}`)
-      this.logger.info(`   • Victory Rewards Pool: ${victoryRewardsPool}`)
-      this.logger.info(`   • SUI Rewards Pool: ${suiRewardsPool}`)
-      this.logger.info(`   • TOTAL LOCKER TVL: ${totalLockerTVL}`)
+      const weekLocked = parseFloat(weekLockedRaw) / 1e6
+      const threeMonthLocked = parseFloat(threeMonthLockedRaw) / 1e6
+      const yearLocked = parseFloat(yearLockedRaw) / 1e6
+      const threeYearLocked = parseFloat(threeYearLockedRaw) / 1e6
 
-      // Create simplified pools array for now
-      const pools: LockerTVLData[] = [{
-        lockPeriod: 0,
-        lockPeriodName: 'All Locks Combined',
-        totalLocked: lockedTokensRaw,
-        totalLockedFormatted: lockedTokensFormatted,
-        victoryPrice: victoryPrice.usdPrice,
-        tvlUSD: lockedTokensTVL,
-        estimatedAPR: 0,
-        allocationPercentage: 0
-      }]
+      const weekLockedTVL = weekLocked * victoryPrice.usdPrice
+      const threeMonthLockedTVL = threeMonthLocked * victoryPrice.usdPrice
+      const yearLockedTVL = yearLocked * victoryPrice.usdPrice
+      const threeYearLockedTVL = threeYearLocked * victoryPrice.usdPrice
+
+      const enhancedPools: LockerTVLData[] = []
+
+      for (const lockPeriodData of VICTORY_LOCK_PERIODS) {
+        let lockedAmount: number
+        let lockedAmountUSD: number
+        let totalLocked: string
+
+        switch (lockPeriodData.lockPeriod) {
+          case 7:
+            lockedAmount = weekLocked
+            lockedAmountUSD = weekLockedTVL
+            totalLocked = weekLockedRaw
+            break
+          case 90:
+            lockedAmount = threeMonthLocked
+            lockedAmountUSD = threeMonthLockedTVL
+            totalLocked = threeMonthLockedRaw
+            break
+          case 365:
+            lockedAmount = yearLocked
+            lockedAmountUSD = yearLockedTVL
+            totalLocked = yearLockedRaw
+            break
+          case 1095:
+            lockedAmount = threeYearLocked
+            lockedAmountUSD = threeYearLockedTVL
+            totalLocked = threeYearLockedRaw
+            break
+          default:
+            continue
+        }
+
+        const aprBreakdown = await this.calculateVictoryStakingAPRForLockPeriod(
+          lockPeriodData,
+          lockedAmountUSD,
+          totalLockedTokensTVL
+        )
+
+        enhancedPools.push({
+          lockPeriod: lockPeriodData.lockPeriod,
+          lockPeriodName: lockPeriodData.lockPeriodName,
+          totalLocked,
+          totalLockedFormatted: lockedAmount,
+          victoryPrice: victoryPrice.usdPrice,
+          tvlUSD: lockedAmountUSD,
+          estimatedAPR: aprBreakdown.totalAPR,
+          allocationPercentage: lockPeriodData.victoryAllocationBP / 100,
+          aprBreakdown: aprBreakdown
+        })
+      }
+
+      const totalLockerTVL = enhancedPools.reduce((sum, pool) => sum + pool.tvlUSD, 0)
+
+      this.logger.info('Enhanced Locker TVL with multi-period APRs:', {
+        totalLockerTVL: totalLockerTVL.toLocaleString(),
+        lockPeriods: enhancedPools.length,
+        avgAPR: enhancedPools.length > 0 
+          ? (enhancedPools.reduce((sum, pool) => sum + pool.estimatedAPR, 0) / enhancedPools.length).toFixed(2) + '%'
+          : '0%',
+        highestAPR: enhancedPools.length > 0 
+          ? Math.max(...enhancedPools.map(p => p.estimatedAPR)).toFixed(2) + '%'
+          : '0%'
+      })
 
       return {
-        pools,
+        pools: enhancedPools,
         totalLockerTVL,
         suiRewardsPool,
         victoryRewardsPool
       }
 
     } catch (error) {
-      this.logger.error('💥 CRITICAL: Error calculating locker TVL:', error)
+      this.logger.error('💥 Error calculating enhanced locker TVL:', error)
       
       return {
         pools: [],
@@ -1159,30 +1513,96 @@ export class TVLAPRService {
     }
   }
 
-  // ================================
-  // CALCULATION HELPER METHODS
-  // ================================
+  static async calculateVictoryStakingAPRForLockPeriod(
+    lockPeriodData: LockPeriodData,
+    lockedAmountUSD: number,
+    totalVictoryStakingTVL: number
+  ): Promise<APRBreakdown> {
+    try {
+      if (lockedAmountUSD <= 0) {
+        return {
+          baseAPR: 0, bonusAPR: 0, totalAPR: 0,
+          victoryRewardsPerSecond: 0, victoryRewardsPerDay: 0, victoryRewardsAnnual: 0,
+          dailyRewardsUSD: 0, annualRewardsUSD: 0,
+          rewardTokens: ['VICTORY'], emissionWeek: 0, poolShare: 0
+        }
+      }
 
+      const emissionData = await this.getCurrentEmissionData()
+      if (!emissionData) {
+        return {
+          baseAPR: 0, bonusAPR: 0, totalAPR: 0,
+          victoryRewardsPerSecond: 0, victoryRewardsPerDay: 0, victoryRewardsAnnual: 0,
+          dailyRewardsUSD: 0, annualRewardsUSD: 0,
+          rewardTokens: ['VICTORY'], emissionWeek: 0, poolShare: 0
+        }
+      }
 
-  static calculateLockerAPR(allocationBasisPoints: number, lockPeriodDays: number): number {
-    // Longer locks get higher APR
-    const periodMultiplier = lockPeriodDays / 365 // Annualized
-    const allocationPercentage = allocationBasisPoints / 100 // Convert basis points to percentage
-    
-    // Base APR scales with allocation and lock period
-    return Math.min(allocationPercentage * periodMultiplier * 10, 200) // Cap at 200%
+      const { currentWeek, emissionRates, victoryPriceUSD } = emissionData
+
+      const totalVictoryStakingPerSecond = parseFloat(emissionRates.victoryStakingPerSecond)
+      const lockPeriodAllocationPercent = lockPeriodData.victoryAllocationBP / 10000
+      const lockPeriodVictoryPerSecond = totalVictoryStakingPerSecond * lockPeriodAllocationPercent
+      const userVictoryPerSecond = lockPeriodVictoryPerSecond
+
+      const victoryRewardsPerDay = userVictoryPerSecond * 86400
+      const victoryRewardsAnnual = victoryRewardsPerDay * 365
+
+      const dailyRewardsUSD = victoryRewardsPerDay * victoryPriceUSD
+      const annualRewardsUSD = victoryRewardsAnnual * victoryPriceUSD
+
+      const baseAPR = (annualRewardsUSD / lockedAmountUSD) * 100
+
+      let bonusAPR = 0
+      if (currentWeek <= 4) {
+        bonusAPR = baseAPR * 0.10
+      }
+
+      const lockDurationMultiplier = this.getLockDurationBonus(lockPeriodData.lockPeriod)
+      bonusAPR += baseAPR * lockDurationMultiplier
+
+      const totalAPR = baseAPR + bonusAPR
+
+      return {
+        baseAPR,
+        bonusAPR,
+        totalAPR,
+        victoryRewardsPerSecond: userVictoryPerSecond,
+        victoryRewardsPerDay,
+        victoryRewardsAnnual,
+        dailyRewardsUSD,
+        annualRewardsUSD,
+        rewardTokens: ['VICTORY'],
+        emissionWeek: currentWeek,
+        poolShare: lockPeriodAllocationPercent
+      }
+
+    } catch (error) {
+      this.logger.error(`Error calculating Victory staking APR for ${lockPeriodData.lockPeriodName}`, error)
+      return {
+        baseAPR: 0, bonusAPR: 0, totalAPR: 0,
+        victoryRewardsPerSecond: 0, victoryRewardsPerDay: 0, victoryRewardsAnnual: 0,
+        dailyRewardsUSD: 0, annualRewardsUSD: 0,
+        rewardTokens: ['VICTORY'], emissionWeek: 0, poolShare: 0
+      }
+    }
+  }
+
+  static getLockDurationBonus(lockPeriodDays: number): number {
+    if (lockPeriodDays >= 1095) return 0.30
+    if (lockPeriodDays >= 365) return 0.20
+    if (lockPeriodDays >= 90) return 0.10
+    return 0
   }
 
   // ================================
-  // UTILITY METHODS
+  // UTILITY METHODS (Same as before)
   // ================================
 
   static sortTokenTypes(token0: string, token1: string): [string, string] {
     if (token0 === token1) {
       throw new Error('Identical tokens')
     }
-    
-    // Use lexicographic comparison for consistent sorting
     return token0 < token1 ? [token0, token1] : [token1, token0]
   }
 
@@ -1194,17 +1614,14 @@ export class TVLAPRService {
     const token0 = token0Raw.trim()
     const token1 = token1Raw.trim()
 
-    // Return sorted tokens
     const [sortedToken0, sortedToken1] = this.sortTokenTypes(token0, token1)
     return { token0: sortedToken0, token1: sortedToken1 }
   }
 
   static extractTokenSymbol(tokenType: string): string {
-    // Handle special cases
     if (tokenType.includes('::sui::SUI')) return 'SUI'
     if (tokenType.includes('::victory_token::VICTORY_TOKEN')) return 'VICTORY'
     
-    // Extract from type string
     const parts = tokenType.split('::')
     if (parts.length >= 2) {
       return parts[parts.length - 1].toUpperCase()
@@ -1221,10 +1638,6 @@ export class TVLAPRService {
     return tokenType.includes('::victory_token::VICTORY_TOKEN') || 
            tokenType === CONSTANTS.VICTORY_TOKEN.TYPE
   }
-
-  // ================================
-  // CACHE MANAGEMENT
-  // ================================
 
   static clearCache(): void {
     this.priceCache.clear()
@@ -1248,880 +1661,4 @@ export class TVLAPRService {
     this.cacheExpiry = milliseconds
     this.logger.info(`Cache expiry set to ${milliseconds}ms`)
   }
-
-  // ================================
-  // DEBUG AND TESTING METHODS
-  // ================================
-
-  /**
-   * Test connection and basic functionality
-   */
-  static async testConnection(): Promise<{
-    status: string
-    suiClient: boolean
-    eventService: boolean
-    tokenLocker: boolean
-    priceData: any
-  }> {
-    try {
-      // Test Sui client
-      const suiClientTest = await suiClient.getLatestSuiSystemState()
-      
-      // Test EventBasedPoolService
-      const { pools } = await EventBasedPoolService.getAllPools()
-      
-      // Test TokenLockerService
-      const lockerConfig = await TokenLockerService.fetchTokenLockerConfig()
-      
-      // Test price fetching
-      const suiPrice = await this.getPriceFromCoinGecko('SUI')
-      
-      return {
-        status: 'SUCCESS',
-        suiClient: !!suiClientTest,
-        eventService: pools.length > 0,
-        tokenLocker: !!lockerConfig,
-        priceData: {
-          suiPrice,
-          cacheSize: this.priceCache.size
-        }
-      }
-    } catch (error) {
-      this.logger.error('Connection test failed', error)
-      return {
-        status: 'FAILED',
-        suiClient: false,
-        eventService: false,
-        tokenLocker: false,
-        priceData: null
-      }
-    }
-  }
-
-  /**
-   * Get detailed debug information
-   */
-  static getDebugInfo(): {
-    cacheStats: any
-    constants: any
-    currentAccount: any
-  } {
-    return {
-      cacheStats: this.getCacheStats(),
-      constants: {
-        packageId: CONSTANTS.PACKAGE_ID,
-        farmId: CONSTANTS.FARM_ID,
-        factoryId: CONSTANTS.FACTORY_ID,
-        victoryTokenType: CONSTANTS.VICTORY_TOKEN.TYPE
-      },
-      currentAccount: this.currentAccount
-    }
-  }
-
-  /**
-   * Manual price update for specific token
-   */
-  static async updateTokenPrice(symbol: string, tokenType?: string): Promise<TokenPrice> {
-    const cacheKey = tokenType || symbol.toUpperCase()
-    this.priceCache.delete(cacheKey) // Clear cache first
-    return await this.getTokenPrice(symbol, tokenType)
-  }
-
-  /**
-   * Debug locker TVL calculation specifically
-   */
-  static async debugLockerTVL(): Promise<{
-    lockerConfig: any
-    victoryPrice: TokenPrice
-    suiPrice: TokenPrice
-    calculations: any[]
-    totalTVL: number
-    errors: string[]
-  }> {
-    const errors: string[] = []
-    
-    try {
-      console.log('🔒 DEBUGGING: Starting locker TVL debug...')
-      
-      // Step 1: Get locker config
-      const lockerConfig = await TokenLockerService.fetchTokenLockerConfig()
-      console.log('📋 DEBUGGING: Raw locker config:', lockerConfig)
-      
-      // Step 2: Get prices
-      const victoryPrice = await this.getTokenPrice('VICTORY', CONSTANTS.VICTORY_TOKEN.TYPE)
-      const suiPrice = await this.getTokenPrice('SUI', '0x2::sui::SUI')
-      
-      console.log('💰 DEBUGGING: Prices:', {
-        victory: victoryPrice,
-        sui: suiPrice
-      })
-      
-      // Step 3: Calculate each component
-      const calculations: any[] = []
-      
-      // Check vault balances
-      if (lockerConfig.vaultBalances) {
-        const suiRewards = parseFloat(lockerConfig.vaultBalances.suiRewards || '0') / Math.pow(10, 9)
-        const victoryRewards = parseFloat(lockerConfig.vaultBalances.victoryRewards || '0') / Math.pow(10, 6)
-        const lockedTokens = parseFloat(lockerConfig.vaultBalances.lockedTokens || '0') / Math.pow(10, 6)
-        
-        calculations.push({
-          type: 'SUI Rewards',
-          rawBalance: lockerConfig.vaultBalances.suiRewards,
-          formattedBalance: suiRewards,
-          price: suiPrice.usdPrice,
-          tvl: suiRewards * suiPrice.usdPrice
-        })
-        
-        calculations.push({
-          type: 'Victory Rewards',
-          rawBalance: lockerConfig.vaultBalances.victoryRewards,
-          formattedBalance: victoryRewards,
-          price: victoryPrice.usdPrice,
-          tvl: victoryRewards * victoryPrice.usdPrice
-        })
-        
-        calculations.push({
-          type: 'Locked Tokens',
-          rawBalance: lockerConfig.vaultBalances.lockedTokens,
-          formattedBalance: lockedTokens,
-          price: victoryPrice.usdPrice,
-          tvl: lockedTokens * victoryPrice.usdPrice
-        })
-      }
-      
-      // Check pool stats if available
-      if (lockerConfig.poolStats) {
-        const poolTypes = ['weekLocked', 'threeMonthLocked', 'yearLocked', 'threeYearLocked']
-        
-        for (const poolType of poolTypes) {
-          const rawAmount = lockerConfig.poolStats[poolType] || '0'
-          const formattedAmount = parseFloat(rawAmount) / Math.pow(10, 6)
-          
-          calculations.push({
-            type: `Pool ${poolType}`,
-            rawBalance: rawAmount,
-            formattedBalance: formattedAmount,
-            price: victoryPrice.usdPrice,
-            tvl: formattedAmount * victoryPrice.usdPrice
-          })
-        }
-      }
-      
-      const totalTVL = calculations.reduce((sum, calc) => sum + calc.tvl, 0)
-      
-      console.log('📊 DEBUGGING: All calculations:', calculations)
-      console.log('💎 DEBUGGING: Total TVL:', totalTVL)
-      
-      return {
-        lockerConfig,
-        victoryPrice,
-        suiPrice,
-        calculations,
-        totalTVL,
-        errors
-      }
-      
-    } catch (error) {
-      console.error('💥 DEBUGGING: Locker TVL debug failed:', error)
-      errors.push(String(error))
-      
-      return {
-        lockerConfig: null,
-        victoryPrice: { symbol: 'VICTORY', tokenType: '', usdPrice: 0, source: 'HARDCODED', lastUpdated: 0, confidence: 'LOW' },
-        suiPrice: { symbol: 'SUI', tokenType: '', usdPrice: 0, source: 'HARDCODED', lastUpdated: 0, confidence: 'LOW' },
-        calculations: [],
-        totalTVL: 0,
-        errors
-      }
-    }
-  }
-  static async debugPoolDiscovery(): Promise<{
-    eventPools: any[]
-    processedPools: FarmPoolInfo[]
-    poolBreakdown: any
-    errors: any[]
-  }> {
-    try {
-      const { pools } = await EventBasedPoolService.getAllPools()
-      const senderAddress = this.currentAccount?.address || 
-        '0x0000000000000000000000000000000000000000000000000000000000000000'
-      
-      const processedPools: FarmPoolInfo[] = []
-      const errors: any[] = []
-      
-      console.log('🔍 DEBUGGING: All pools from events:', pools.map(p => ({
-        id: p.id,
-        name: p.name,
-        type: p.type,
-        allocationPoints: p.allocationPoints,
-        isActive: p.isActive
-      })))
-      
-      for (const pool of pools) {
-        try {
-          const poolInfo = await this.getFarmPoolInfoWorking(pool.typeName, senderAddress)
-          
-          if (poolInfo && poolInfo.totalStakedBigInt !== undefined) {
-            processedPools.push({
-              poolId: pool.id,
-              poolName: pool.name,
-              poolType: pool.type as 'LP' | 'Single',
-              tokenType: pool.typeName,
-              totalStaked: poolInfo.totalStakedBigInt.toString(),
-              allocationPoints: pool.allocationPoints,
-              isActive: poolInfo.active !== false,
-              pairId: pool.type === 'LP' ? await this.findPairIdWorking(pool.typeName, senderAddress) : undefined
-            })
-          } else {
-            errors.push({
-              pool: pool.name,
-              error: 'No pool info returned',
-              poolInfo
-            })
-          }
-        } catch (error) {
-          errors.push({
-            pool: pool.name,
-            error: String(error)
-          })
-        }
-      }
-      
-      const poolBreakdown = {
-        totalFromEvents: pools.length,
-        totalProcessed: processedPools.length,
-        lpPools: processedPools.filter(p => p.poolType === 'LP').length,
-        singlePools: processedPools.filter(p => p.poolType === 'Single').length,
-        poolsWithStake: processedPools.filter(p => BigInt(p.totalStaked) > 0n).length,
-        errors: errors.length
-      }
-      
-      console.log('📊 DEBUGGING: Pool breakdown:', poolBreakdown)
-      console.log('❌ DEBUGGING: Errors:', errors)
-      
-      return {
-        eventPools: pools,
-        processedPools,
-        poolBreakdown,
-        errors
-      }
-    } catch (error) {
-      console.error('💥 Debug pool discovery failed:', error)
-      return {
-        eventPools: [],
-        processedPools: [],
-        poolBreakdown: {},
-        errors: [{ error: String(error) }]
-      }
-    }
-  }
-  static async debugPriceDiscovery(symbol: string, tokenType?: string): Promise<{
-    symbol: string
-    tokenType: string
-    dexPrice: number
-    coinGeckoPrice: number
-    hardcodedPrice: number
-    finalPrice: TokenPrice
-    errors: string[]
-  }> {
-    const errors: string[] = []
-    let dexPrice = 0
-    let coinGeckoPrice = 0
-    let hardcodedPrice = 0
-
-    try {
-      dexPrice = await this.getPriceFromDEX(symbol, tokenType)
-    } catch (error) {
-      errors.push(`DEX: ${String(error)}`)
-    }
-
-    try {
-      coinGeckoPrice = await this.getPriceFromCoinGecko(symbol)
-    } catch (error) {
-      errors.push(`CoinGecko: ${String(error)}`)
-    }
-
-    hardcodedPrice = this.getHardcodedPrice(symbol)
-
-    const finalPrice = await this.getTokenPrice(symbol, tokenType)
-
-    return {
-      symbol,
-      tokenType: tokenType || 'unknown',
-      dexPrice,
-      coinGeckoPrice,
-      hardcodedPrice,
-      finalPrice,
-      errors
-    }
-  }
-
-  /**
- * Get current emission data for APR calculations
- */
-static async getCurrentEmissionData(): Promise<{
-  currentWeek: number
-  emissionRates: any
-  victoryPriceUSD: number
-} | null> {
-  try {
-    // Get emission start time and current time
-    const emissionConfig = await EmissionService.fetchEmissionConfig()
-    const currentTimestamp = Math.floor(Date.now() / 1000)
-    
-    if (emissionConfig.emissionStartTimestamp === 0) {
-      this.logger.warn('Emissions not started yet')
-      return null
-    }
-
-    // Calculate current week using tokenomics
-    const tokenomicsSnapshot = calculateTokenomicsSnapshot(
-      emissionConfig.emissionStartTimestamp, 
-      currentTimestamp
-    )
-    
-    const currentWeek = tokenomicsSnapshot.currentWeek
-    if (currentWeek === 0) {
-      this.logger.warn('Current week is 0, emissions may not be active')
-      return null
-    }
-
-    // Get emission rates for this week
-    const emissionRates = getCurrentEmissionRates(currentWeek)
-    
-    // Get Victory price
-    const victoryPrice = await this.getTokenPrice('VICTORY', CONSTANTS.VICTORY_TOKEN.TYPE)
-    
-    this.logger.debug('Current emission data:', {
-      currentWeek,
-      emissionRates,
-      victoryPriceUSD: victoryPrice.usdPrice
-    })
-
-    return {
-      currentWeek,
-      emissionRates,
-      victoryPriceUSD: victoryPrice.usdPrice
-    }
-
-  } catch (error) {
-    this.logger.error('Error getting current emission data:', error)
-    return null
-  }
-}
-
-/**
- * Get total allocation points for a pool type
- */
-static async getTotalAllocationPoints(poolType: 'LP' | 'Single'): Promise<number> {
-  try {
-    const { pools: allPools } = await EventBasedPoolService.getAllPools()
-    const poolsOfType = allPools.filter(p => p.type === poolType && p.isActive)
-    const totalAllocPoints = poolsOfType.reduce((sum, p) => sum + p.allocationPoints, 0)
-    
-    this.logger.debug(`Total ${poolType} allocation points: ${totalAllocPoints}`)
-    return totalAllocPoints
-    
-  } catch (error) {
-    this.logger.error(`Error getting total ${poolType} allocation points:`, error)
-    return 1 // Fallback to prevent division by zero
-  }
-}
-
-/**
- * Calculate accurate pool APR using emission data
- */
-static async calculatePoolAPRFromEmissions(
-  poolInfo: FarmPoolInfo,
-  tvlUSD: number
-): Promise<APRBreakdown> {
-  try {
-    if (tvlUSD <= 0 || !poolInfo.isActive) {
-      return {
-        baseAPR: 0, bonusAPR: 0, totalAPR: 0,
-        victoryRewardsPerSecond: 0, victoryRewardsPerDay: 0, victoryRewardsAnnual: 0,
-        dailyRewardsUSD: 0, annualRewardsUSD: 0,
-        rewardTokens: ['VICTORY'], emissionWeek: 0, poolShare: 0
-      }
-    }
-
-    // 1. Get current emission data
-    const emissionData = await this.getCurrentEmissionData()
-    if (!emissionData) {
-      this.logger.warn(`No emission data available for ${poolInfo.poolName}`)
-      return {
-        baseAPR: 0, bonusAPR: 0, totalAPR: 0,
-        victoryRewardsPerSecond: 0, victoryRewardsPerDay: 0, victoryRewardsAnnual: 0,
-        dailyRewardsUSD: 0, annualRewardsUSD: 0,
-        rewardTokens: ['VICTORY'], emissionWeek: 0, poolShare: 0
-      }
-    }
-
-    const { currentWeek, emissionRates, victoryPriceUSD } = emissionData
-
-    // 2. Get pool type emission rate and total allocation
-    let poolTypeEmissionPerSecond: number
-    let totalAllocPoints: number
-
-    if (poolInfo.poolType === 'LP') {
-      poolTypeEmissionPerSecond = parseFloat(emissionRates.lpPerSecond)
-      totalAllocPoints = await this.getTotalAllocationPoints('LP')
-    } else {
-      poolTypeEmissionPerSecond = parseFloat(emissionRates.singlePerSecond)
-      totalAllocPoints = await this.getTotalAllocationPoints('Single')
-    }
-
-    // 3. Calculate this pool's share
-    const poolShare = totalAllocPoints > 0 ? poolInfo.allocationPoints / totalAllocPoints : 0
-    const poolVictoryPerSecond = poolTypeEmissionPerSecond * poolShare
-
-    // 4. Calculate time-based rewards
-    const victoryRewardsPerDay = poolVictoryPerSecond * 86400 // seconds per day
-    const victoryRewardsAnnual = victoryRewardsPerDay * 365
-
-    const dailyRewardsUSD = victoryRewardsPerDay * victoryPriceUSD
-    const annualRewardsUSD = victoryRewardsAnnual * victoryPriceUSD
-
-    // 5. Calculate base APR
-    const baseAPR = (annualRewardsUSD / tvlUSD) * 100
-
-    // 6. Calculate bonus APR (early phase bonus)
-    let bonusAPR = 0
-    if (currentWeek <= 4) {
-      bonusAPR = baseAPR * 0.15 // 15% bonus during bootstrap phase
-    } else if (currentWeek <= 12) {
-      bonusAPR = baseAPR * 0.05 // 5% bonus during early post-bootstrap
-    }
-
-    const totalAPR = baseAPR + bonusAPR
-
-    const aprBreakdown: APRBreakdown = {
-      baseAPR,
-      bonusAPR,
-      totalAPR,
-      victoryRewardsPerSecond: poolVictoryPerSecond,
-      victoryRewardsPerDay,
-      victoryRewardsAnnual,
-      dailyRewardsUSD,
-      annualRewardsUSD,
-      rewardTokens: ['VICTORY'],
-      emissionWeek: currentWeek,
-      poolShare
-    }
-
-    this.logger.debug(`APR calculated for ${poolInfo.poolName}:`, {
-      poolType: poolInfo.poolType,
-      allocationPoints: poolInfo.allocationPoints,
-      totalAllocPoints,
-      poolShare: (poolShare * 100).toFixed(2) + '%',
-      victoryPerSecond: poolVictoryPerSecond.toFixed(6),
-      dailyVictoryRewards: victoryRewardsPerDay.toFixed(2),
-      victoryPrice: victoryPriceUSD,
-      tvlUSD: tvlUSD.toLocaleString(),
-      baseAPR: baseAPR.toFixed(2) + '%',
-      bonusAPR: bonusAPR.toFixed(2) + '%',
-      totalAPR: totalAPR.toFixed(2) + '%'
-    })
-
-    return aprBreakdown
-
-  } catch (error) {
-    this.logger.error(`Error calculating APR for ${poolInfo.poolName}:`, error)
-    return {
-      baseAPR: 0, bonusAPR: 0, totalAPR: 0,
-      victoryRewardsPerSecond: 0, victoryRewardsPerDay: 0, victoryRewardsAnnual: 0,
-      dailyRewardsUSD: 0, annualRewardsUSD: 0,
-      rewardTokens: ['VICTORY'], emissionWeek: 0, poolShare: 0
-    }
-  }
-}
-
-/**
- * Calculate Victory Staking APR for specific lock period with accurate allocation
- */
-static async calculateVictoryStakingAPRForLockPeriod(
-  lockPeriodData: LockPeriodData,
-  lockedAmountUSD: number,
-  totalVictoryStakingTVL: number
-): Promise<APRBreakdown> {
-  try {
-    if (lockedAmountUSD <= 0) {
-      return {
-        baseAPR: 0, bonusAPR: 0, totalAPR: 0,
-        victoryRewardsPerSecond: 0, victoryRewardsPerDay: 0, victoryRewardsAnnual: 0,
-        dailyRewardsUSD: 0, annualRewardsUSD: 0,
-        rewardTokens: ['VICTORY'], emissionWeek: 0, poolShare: 0
-      }
-    }
-
-    // Get current emission data
-    const emissionData = await this.getCurrentEmissionData()
-    if (!emissionData) {
-      this.logger.warn('No emission data available for Victory staking')
-      return {
-        baseAPR: 0, bonusAPR: 0, totalAPR: 0,
-        victoryRewardsPerSecond: 0, victoryRewardsPerDay: 0, victoryRewardsAnnual: 0,
-        dailyRewardsUSD: 0, annualRewardsUSD: 0,
-        rewardTokens: ['VICTORY'], emissionWeek: 0, poolShare: 0
-      }
-    }
-
-    const { currentWeek, emissionRates, victoryPriceUSD } = emissionData
-
-    // Total Victory staking allocation per second (from emission system)
-    const totalVictoryStakingPerSecond = parseFloat(emissionRates.victoryStakingPerSecond)
-
-    // This lock period gets its share based on allocation basis points
-    const lockPeriodAllocationPercent = lockPeriodData.victoryAllocationBP / 10000
-    const lockPeriodVictoryPerSecond = totalVictoryStakingPerSecond * lockPeriodAllocationPercent
-
-    // User's share within this lock period (assuming they're the only one for max APR)
-    // In reality, this would be divided by the total locked in this specific period
-    const userVictoryPerSecond = lockPeriodVictoryPerSecond // Simplified for max potential
-
-    // Calculate rewards
-    const victoryRewardsPerDay = userVictoryPerSecond * 86400
-    const victoryRewardsAnnual = victoryRewardsPerDay * 365
-
-    const dailyRewardsUSD = victoryRewardsPerDay * victoryPriceUSD
-    const annualRewardsUSD = victoryRewardsAnnual * victoryPriceUSD
-
-    // Calculate base APR
-    const baseAPR = (annualRewardsUSD / lockedAmountUSD) * 100
-
-    // Bonus APR for early phase
-    let bonusAPR = 0
-    if (currentWeek <= 4) {
-      bonusAPR = baseAPR * 0.10 // 10% bonus during bootstrap
-    }
-
-    // Additional bonus for longer locks
-    const lockDurationMultiplier = this.getLockDurationBonus(lockPeriodData.lockPeriod)
-    bonusAPR += baseAPR * lockDurationMultiplier
-
-    const totalAPR = baseAPR + bonusAPR
-
-    this.logger.info(`Victory Staking APR calculated for ${lockPeriodData.lockPeriodName}:`, {
-      currentWeek,
-      lockPeriod: lockPeriodData.lockPeriod,
-      allocationPercent: lockPeriodAllocationPercent * 100 + '%',
-      victoryStakingPerSecond: userVictoryPerSecond.toFixed(6),
-      victoryRewardsPerDay: victoryRewardsPerDay.toFixed(2),
-      victoryPriceUSD,
-      lockedAmountUSD: lockedAmountUSD.toLocaleString(),
-      baseAPR: baseAPR.toFixed(2) + '%',
-      bonusAPR: bonusAPR.toFixed(2) + '%',
-      totalAPR: totalAPR.toFixed(2) + '%'
-    })
-
-    return {
-      baseAPR,
-      bonusAPR,
-      totalAPR,
-      victoryRewardsPerSecond: userVictoryPerSecond,
-      victoryRewardsPerDay,
-      victoryRewardsAnnual,
-      dailyRewardsUSD,
-      annualRewardsUSD,
-      rewardTokens: ['VICTORY'],
-      emissionWeek: currentWeek,
-      poolShare: lockPeriodAllocationPercent
-    }
-
-  } catch (error) {
-    this.logger.error(`Error calculating Victory staking APR for ${lockPeriodData.lockPeriodName}`, error)
-    return {
-      baseAPR: 0, bonusAPR: 0, totalAPR: 0,
-      victoryRewardsPerSecond: 0, victoryRewardsPerDay: 0, victoryRewardsAnnual: 0,
-      dailyRewardsUSD: 0, annualRewardsUSD: 0,
-      rewardTokens: ['VICTORY'], emissionWeek: 0, poolShare: 0
-    }
-  }
-}
-
-/**
- * Calculate lock duration bonus multiplier
- */
-static getLockDurationBonus(lockPeriodDays: number): number {
-  // Bonus increases with lock duration
-  if (lockPeriodDays >= 1095) return 0.30      // 3-year lock: +30% bonus
-  if (lockPeriodDays >= 365) return 0.20       // 1-year lock: +20% bonus  
-  if (lockPeriodDays >= 90) return 0.10        // 3-month lock: +10% bonus
-  return 0                                      // 1-week lock: no bonus
-}
-
-/**
- * Enhanced locker TVL calculation with accurate multi-period APRs
- */
-static async calculateLockerTVLEnhanced(): Promise<SystemTVL['lockerTVL']> {
-  try {
-    this.logger.info('🔒 Calculating enhanced locker TVL with multi-period APRs...')
-
-    // Get locker config (existing logic)
-    const lockerConfig = await TokenLockerService.fetchTokenLockerConfig()
-    
-    // Get Victory price (existing logic)
-    const victoryPrice = await this.getTokenPrice('VICTORY', CONSTANTS.VICTORY_TOKEN.TYPE)
-    const suiPrice = await this.getTokenPrice('SUI', '0x2::sui::SUI')
-
-    // Calculate TVL from vault balances
-    const vaultBalances = lockerConfig.vaultBalances || {}
-    const suiRewardsRaw = vaultBalances.suiRewards || '0'
-    const victoryRewardsRaw = vaultBalances.victoryRewards || '0'
-    const lockedTokensRaw = vaultBalances.lockedTokens || '0'
-    
-    const suiRewardsFormatted = parseFloat(suiRewardsRaw) / 1e9
-    const victoryRewardsFormatted = parseFloat(victoryRewardsRaw) / 1e6
-    const lockedTokensFormatted = parseFloat(lockedTokensRaw) / 1e6
-    
-    const suiRewardsPool = suiRewardsFormatted * suiPrice.usdPrice
-    const victoryRewardsPool = victoryRewardsFormatted * victoryPrice.usdPrice
-    const totalLockedTokensTVL = lockedTokensFormatted * victoryPrice.usdPrice
-
-    // Get pool statistics if available (from lockerConfig.poolStats)
-    const poolStats = lockerConfig.poolStats || {}
-    const weekLockedRaw = poolStats.weekLocked || '0'
-    const threeMonthLockedRaw = poolStats.threeMonthLocked || '0' 
-    const yearLockedRaw = poolStats.yearLocked || '0'
-    const threeYearLockedRaw = poolStats.threeYearLocked || '0'
-
-    // Format individual lock period amounts
-    const weekLocked = parseFloat(weekLockedRaw) / 1e6
-    const threeMonthLocked = parseFloat(threeMonthLockedRaw) / 1e6
-    const yearLocked = parseFloat(yearLockedRaw) / 1e6
-    const threeYearLocked = parseFloat(threeYearLockedRaw) / 1e6
-
-    // Calculate TVL for each lock period
-    const weekLockedTVL = weekLocked * victoryPrice.usdPrice
-    const threeMonthLockedTVL = threeMonthLocked * victoryPrice.usdPrice
-    const yearLockedTVL = yearLocked * victoryPrice.usdPrice
-    const threeYearLockedTVL = threeYearLocked * victoryPrice.usdPrice
-
-    // Calculate APR for each lock period
-    const enhancedPools: LockerTVLData[] = []
-
-    for (const lockPeriodData of VICTORY_LOCK_PERIODS) {
-      let lockedAmount: number
-      let lockedAmountUSD: number
-      let totalLocked: string
-
-      // Map lock period to actual locked amounts
-      switch (lockPeriodData.lockPeriod) {
-        case 7:
-          lockedAmount = weekLocked
-          lockedAmountUSD = weekLockedTVL
-          totalLocked = weekLockedRaw
-          break
-        case 90:
-          lockedAmount = threeMonthLocked
-          lockedAmountUSD = threeMonthLockedTVL
-          totalLocked = threeMonthLockedRaw
-          break
-        case 365:
-          lockedAmount = yearLocked
-          lockedAmountUSD = yearLockedTVL
-          totalLocked = yearLockedRaw
-          break
-        case 1095:
-          lockedAmount = threeYearLocked
-          lockedAmountUSD = threeYearLockedTVL
-          totalLocked = threeYearLockedRaw
-          break
-        default:
-          continue
-      }
-
-      // Calculate accurate APR for this lock period
-      const aprBreakdown = await this.calculateVictoryStakingAPRForLockPeriod(
-        lockPeriodData,
-        lockedAmountUSD,
-        totalLockedTokensTVL
-      )
-
-      enhancedPools.push({
-        lockPeriod: lockPeriodData.lockPeriod,
-        lockPeriodName: lockPeriodData.lockPeriodName,
-        totalLocked,
-        totalLockedFormatted: lockedAmount,
-        victoryPrice: victoryPrice.usdPrice,
-        tvlUSD: lockedAmountUSD,
-        estimatedAPR: aprBreakdown.totalAPR,
-        allocationPercentage: lockPeriodData.victoryAllocationBP / 100, // Convert to percentage
-        // Store additional APR data
-        aprBreakdown: aprBreakdown
-      })
-    }
-
-    // Calculate total locker TVL
-    const totalLockerTVL = enhancedPools.reduce((sum, pool) => sum + pool.tvlUSD, 0)
-
-    this.logger.info('Enhanced Locker TVL with multi-period APRs:', {
-      totalLockerTVL: totalLockerTVL.toLocaleString(),
-      lockPeriods: enhancedPools.length,
-      avgAPR: enhancedPools.length > 0 
-        ? (enhancedPools.reduce((sum, pool) => sum + pool.estimatedAPR, 0) / enhancedPools.length).toFixed(2) + '%'
-        : '0%',
-      highestAPR: enhancedPools.length > 0 
-        ? Math.max(...enhancedPools.map(p => p.estimatedAPR)).toFixed(2) + '%'
-        : '0%'
-    })
-
-    return {
-      pools: enhancedPools,
-      totalLockerTVL,
-      suiRewardsPool,
-      victoryRewardsPool
-    }
-
-  } catch (error) {
-    this.logger.error('💥 Error calculating enhanced locker TVL:', error)
-    
-    return {
-      pools: [],
-      totalLockerTVL: 0,
-      suiRewardsPool: 0,
-      victoryRewardsPool: 0
-    }
-  }
-}
-
-// ✅ Replace your existing calculatePoolAPR method with this:
-static calculatePoolAPR(allocationPoints: number, tvlUSD: number): number {
-  // This method is now deprecated - use calculatePoolAPRFromEmissions instead
-  // Keep it for backward compatibility but use real calculation
-  if (tvlUSD === 0) return 0
-  
-  // Simplified fallback calculation
-  const baseAPR = 50 // 50% base APR
-  const allocationMultiplier = allocationPoints / 1000
-  return Math.min(baseAPR * allocationMultiplier, 500) // Cap at 500%
-}
-
-// ✅ REPLACE your existing calculateFarmTVLFromPools method with this:
-static async calculateFarmTVLFromPoolsEnhanced(farmPools: FarmPoolInfo[]): Promise<SystemTVL['farmTVL']> {
-  const lpPools: PoolTVLData[] = []
-  const singlePools: PoolTVLData[] = []
-
-  for (const pool of farmPools) {
-    try {
-      if (pool.poolType === 'LP') {
-        const lpTVL = await this.calculateLPPoolTVLEnhanced(pool)
-        if (lpTVL) {
-          lpPools.push(lpTVL)
-          this.logger.debug(`Enhanced LP Pool: ${pool.poolName} = $${lpTVL.tvlUSD.toLocaleString()} @ ${lpTVL.apr.toFixed(2)}% APR`)
-        }
-      } else {
-        const singleTVL = await this.calculateSinglePoolTVLEnhanced(pool)
-        if (singleTVL) {
-          singlePools.push(singleTVL)
-          this.logger.debug(`Enhanced Single Pool: ${pool.poolName} = $${singleTVL.tvlUSD.toLocaleString()} @ ${singleTVL.apr.toFixed(2)}% APR`)
-        }
-      }
-    } catch (error) {
-      this.logger.error(`Error calculating enhanced TVL for pool ${pool.poolName}`, error)
-    }
-  }
-
-  const totalLPTVL = lpPools.reduce((sum, pool) => sum + pool.tvlUSD, 0)
-  const totalSingleTVL = singlePools.reduce((sum, pool) => sum + pool.tvlUSD, 0)
-  const totalFarmTVL = totalLPTVL + totalSingleTVL
-
-  this.logger.info('Enhanced Farm TVL calculated with real APRs', {
-    lpPools: lpPools.length,
-    singlePools: singlePools.length,
-    totalLPTVL: `$${totalLPTVL.toLocaleString()}`,
-    totalSingleTVL: `$${totalSingleTVL.toLocaleString()}`,
-    totalFarmTVL: `$${totalFarmTVL.toLocaleString()}`
-  })
-
-  return {
-    lpPools,
-    singlePools,
-    totalLPTVL,
-    totalSingleTVL,
-    totalFarmTVL
-  }
-}
-
-/**
- * Enhanced LP pool TVL calculation with accurate APR
- */
-static async calculateLPPoolTVLEnhanced(pool: FarmPoolInfo): Promise<PoolTVLData | null> {
-  try {
-    if (!pool.pairId) {
-      this.logger.warn(`No pair ID for LP pool ${pool.poolName}`)
-      return null
-    }
-
-    // Get LP token info (existing logic)
-    const lpInfo = await this.getLPTokenInfo(pool.pairId, pool.tokenType)
-    if (!lpInfo) return null
-
-    // Calculate TVL (existing logic)
-    const totalStakedFormatted = parseFloat(pool.totalStaked) / Math.pow(10, 9)
-    const tvlUSD = totalStakedFormatted * lpInfo.lpTokenPrice
-
-    // ✅ NEW: Calculate accurate APR using emission data
-    const aprBreakdown = await this.calculatePoolAPRFromEmissions(pool, tvlUSD)
-
-    return {
-      poolId: pool.poolId,
-      poolName: pool.poolName,
-      poolType: 'LP',
-      tokenType: pool.tokenType,
-      totalStaked: pool.totalStaked,
-      totalStakedFormatted,
-      tokenPrice: lpInfo.lpTokenPrice,
-      tvlUSD,
-      apr: aprBreakdown.totalAPR,
-      allocationPoints: pool.allocationPoints,
-      isActive: pool.isActive,
-      priceSource: 'DEX',
-      lastUpdated: Date.now(),
-      aprBreakdown: aprBreakdown
-    }
-
-  } catch (error) {
-    this.logger.error(`Error calculating enhanced LP pool TVL for ${pool.poolName}`, error)
-    return null
-  }
-}
-
-/**
- * Enhanced single pool TVL calculation with accurate APR
- */
-static async calculateSinglePoolTVLEnhanced(pool: FarmPoolInfo): Promise<PoolTVLData | null> {
-  try {
-    const symbol = this.extractTokenSymbol(pool.tokenType)
-    const priceData = await this.getTokenPrice(symbol, pool.tokenType)
-
-    const totalStakedFormatted = parseFloat(pool.totalStaked) / Math.pow(10, 9)
-    const tvlUSD = totalStakedFormatted * priceData.usdPrice
-
-    // ✅ NEW: Calculate accurate APR using emission data
-    const aprBreakdown = await this.calculatePoolAPRFromEmissions(pool, tvlUSD)
-
-    return {
-      poolId: pool.poolId,
-      poolName: pool.poolName,
-      poolType: 'Single',
-      tokenType: pool.tokenType,
-      totalStaked: pool.totalStaked,
-      totalStakedFormatted,
-      tokenPrice: priceData.usdPrice,
-      tvlUSD,
-      apr: aprBreakdown.totalAPR,
-      allocationPoints: pool.allocationPoints,
-      isActive: pool.isActive,
-      priceSource: priceData.source,
-      lastUpdated: Date.now(),
-      aprBreakdown: aprBreakdown
-    }
-
-  } catch (error) {
-    this.logger.error(`Error calculating enhanced single pool TVL for ${pool.poolName}`, error)
-    return null
-  }
-}
 }

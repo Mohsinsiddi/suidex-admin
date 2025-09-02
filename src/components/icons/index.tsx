@@ -360,6 +360,25 @@ export function ChevronUpIcon({ className = '', size = 24 }: { className?: strin
   )
 }
 
+// ZapIcon Component  
+export function ZapIcon({ className = '', size = 24 }: { className?: string; size?: number }) {
+  return (
+    <svg className={className} width={size} height={size} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+    </svg>
+  )
+}
+
+// AlertCircleIcon Component  
+export function AlertCircleIcon({ className = '', size = 24 }: { className?: string; size?: number }) {
+  return (
+    <svg className={className} width={size} height={size} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="10" strokeWidth={2} />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m12 8v4m0 4h.01" />
+    </svg>
+  )
+}
+
 // Export all icons as a single object for easier importing
 export const Icons = {
   Overview: OverviewIcon,
@@ -405,6 +424,7 @@ export const Icons = {
   Dex: DexIcon,
   Swap: SwapIcon,
   ChevronDownIcon:ChevronDownIcon,
-  ChevronUpIcon:ChevronUpIcon
-
+  ChevronUpIcon:ChevronUpIcon,
+  ZapIcon:ZapIcon,
+  AlertCircleIcon:AlertCircleIcon
 } as const
