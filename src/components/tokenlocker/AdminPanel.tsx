@@ -1,4 +1,4 @@
-// components/tokenlocker/AdminPanel.tsx
+// components/tokenlocker/AdminPanel.tsx - UPDATED WITH DATA PASSING FIX
 import React, { useState } from 'react'
 import { AlertTriangle, Settings, Percent, BarChart3, DollarSign, Users, Plus, Upload, Download } from 'lucide-react'
 import { TokenLockerService } from '../../services/tokenLockerService'
@@ -38,7 +38,7 @@ interface AdminPanelProps {
   }>>
   victoryDepositAmount: string
   setVictoryDepositAmount: React.Dispatch<React.SetStateAction<string>>
-  onConfirmAction: (action: string) => void
+  onConfirmAction: (action: string, data?: any) => void // UPDATED: Added optional data parameter
   actionLoading: boolean
 }
 
@@ -120,13 +120,89 @@ export default function AdminPanel({
     setBatchInput('')
   }
 
-  const validateBatchLocks = () => {
+  // UPDATED: Enhanced validation with early exit
+  const validateAndExecuteSingleLock = () => {
+    const addressValidation = TokenLockerService.validateUserAddress(singleLock.userAddress)
+    const amountValidation = TokenLockerService.validateAmount(singleLock.amount)
+    const periodValidation = TokenLockerService.validateLockPeriod(singleLock.lockPeriod)
+    
+    // Show specific error messages
+    if (!addressValidation.isValid) {
+      alert(`Address Error: ${addressValidation.error}`)
+      return
+    }
+    if (!amountValidation.isValid) {
+      alert(`Amount Error: ${amountValidation.error}`)
+      return
+    }
+    if (!periodValidation.isValid) {
+      alert(`Period Error: ${periodValidation.error}`)
+      return
+    }
+    
+    // All validation passed - pass current form data to modal
+    onConfirmAction('createSingleLock', {
+      singleLock: {
+        userAddress: singleLock.userAddress,
+        amount: singleLock.amount,
+        lockPeriod: singleLock.lockPeriod
+      }
+    })
+  }
+
+  // UPDATED: Enhanced batch validation
+  const validateAndExecuteBatchLocks = () => {
     const validation = TokenLockerService.validateBatchLockOperations(batchLocks)
     if (!validation.isValid) {
-      alert('Validation errors:\n' + validation.errors.join('\n'))
-      return false
+      alert('Batch Validation Errors:\n' + validation.errors.join('\n'))
+      return
     }
-    return true
+    
+    // Pass current batch data to modal
+    onConfirmAction('createBatchLocks', {
+      batchLocks: [...batchLocks] // Clone array to avoid reference issues
+    })
+  }
+
+  // UPDATED: Enhanced victory deposit validation
+  const validateAndExecuteVictoryDeposit = () => {
+    const validation = TokenLockerService.validateAmount(victoryDepositAmount)
+    if (!validation.isValid) {
+      alert(`Deposit Error: ${validation.error}`)
+      return
+    }
+    
+    // Pass current deposit amount
+    onConfirmAction('depositVictory', {
+      victoryDepositAmount: victoryDepositAmount
+    })
+  }
+
+  // UPDATED: Enhanced allocation validation
+  const validateAndExecuteVictoryAllocations = () => {
+    const validation = TokenLockerService.validateAllocations(victoryAllocations)
+    if (!validation.isValid) {
+      alert('Victory Allocation Errors:\n' + validation.errors.join('\n'))
+      return
+    }
+    
+    // Pass current allocations
+    onConfirmAction('updateVictoryAllocations', {
+      victoryAllocations: { ...victoryAllocations }
+    })
+  }
+
+  const validateAndExecuteSUIAllocations = () => {
+    const validation = TokenLockerService.validateAllocations(suiAllocations)
+    if (!validation.isValid) {
+      alert('SUI Allocation Errors:\n' + validation.errors.join('\n'))
+      return
+    }
+    
+    // Pass current allocations
+    onConfirmAction('updateSUIAllocations', {
+      suiAllocations: { ...suiAllocations }
+    })
   }
 
   return (
@@ -174,16 +250,14 @@ export default function AdminPanel({
               <p className="text-slate-400 text-sm mt-1">
                 Current balance: {dashboardData?.config ? TokenLockerService.formatVictoryAmount(dashboardData.config.vaultBalances.victoryRewards) : '0 VICTORY'}
               </p>
+              {victoryDepositAmount && (
+                <p className="text-green-400 text-sm mt-1">
+                  Will deposit: {TokenLockerService.formatVictoryAmount(victoryDepositAmount)}
+                </p>
+              )}
             </div>
             <button
-              onClick={() => {
-                const validation = TokenLockerService.validateAmount(victoryDepositAmount)
-                if (!validation.isValid) {
-                  alert(validation.error)
-                  return
-                }
-                onConfirmAction('depositVictory')
-              }}
+              onClick={validateAndExecuteVictoryDeposit}
               disabled={!canPerformAction || !victoryDepositAmount || actionLoading}
               className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:opacity-50 text-white font-semibold px-4 py-3 rounded-lg transition-all duration-200"
             >
@@ -231,14 +305,7 @@ export default function AdminPanel({
                 )}
               </div>
               <button
-                onClick={() => {
-                  const validation = TokenLockerService.validateAllocations(victoryAllocations)
-                  if (!validation.isValid) {
-                    alert('Validation errors:\n' + validation.errors.join('\n'))
-                    return
-                  }
-                  onConfirmAction('updateVictoryAllocations')
-                }}
+                onClick={validateAndExecuteVictoryAllocations}
                 disabled={!canPerformAction || actionLoading}
                 className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:opacity-50 text-white font-semibold px-4 py-3 rounded-lg transition-all duration-200"
               >
@@ -282,14 +349,7 @@ export default function AdminPanel({
                 )}
               </div>
               <button
-                onClick={() => {
-                  const validation = TokenLockerService.validateAllocations(suiAllocations)
-                  if (!validation.isValid) {
-                    alert('Validation errors:\n' + validation.errors.join('\n'))
-                    return
-                  }
-                  onConfirmAction('updateSUIAllocations')
-                }}
+                onClick={validateAndExecuteSUIAllocations}
                 disabled={!canPerformAction || actionLoading}
                 className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:opacity-50 text-white font-semibold px-4 py-3 rounded-lg transition-all duration-200"
               >
@@ -319,6 +379,18 @@ export default function AdminPanel({
                   placeholder="0x..."
                   className="w-full bg-slate-700/50 border border-slate-600/50 rounded-lg px-3 py-2 text-white placeholder-slate-400 focus:border-green-500 focus:outline-none"
                 />
+                {singleLock.userAddress && (
+                  <p className={`text-xs mt-1 ${
+                    TokenLockerService.validateUserAddress(singleLock.userAddress).isValid 
+                      ? 'text-green-400' 
+                      : 'text-red-400'
+                  }`}>
+                    {TokenLockerService.validateUserAddress(singleLock.userAddress).isValid 
+                      ? '✓ Valid address' 
+                      : TokenLockerService.validateUserAddress(singleLock.userAddress).error
+                    }
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-slate-300 font-medium mb-2">Amount (Victory)</label>
@@ -329,6 +401,18 @@ export default function AdminPanel({
                   placeholder="1000000"
                   className="w-full bg-slate-700/50 border border-slate-600/50 rounded-lg px-3 py-2 text-white placeholder-slate-400 focus:border-green-500 focus:outline-none"
                 />
+                {singleLock.amount && (
+                  <p className={`text-xs mt-1 ${
+                    TokenLockerService.validateAmount(singleLock.amount).isValid 
+                      ? 'text-green-400' 
+                      : 'text-red-400'
+                  }`}>
+                    {TokenLockerService.validateAmount(singleLock.amount).isValid 
+                      ? `✓ ${TokenLockerService.formatVictoryAmount(singleLock.amount)}` 
+                      : TokenLockerService.validateAmount(singleLock.amount).error
+                    }
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-slate-300 font-medium mb-2">Lock Period</label>
@@ -343,33 +427,19 @@ export default function AdminPanel({
                     </option>
                   ))}
                 </select>
+                <p className="text-xs mt-1 text-slate-400">
+                  Min required: {TokenLockerService.formatVictoryAmount(
+                    TokenLockerService.getMinimumLockAmounts()[singleLock.lockPeriod] || '1000000'
+                  )}
+                </p>
               </div>
             </div>
             <button
-              onClick={() => {
-                const addressValidation = TokenLockerService.validateUserAddress(singleLock.userAddress)
-                const amountValidation = TokenLockerService.validateAmount(singleLock.amount)
-                const periodValidation = TokenLockerService.validateLockPeriod(singleLock.lockPeriod)
-                
-                if (!addressValidation.isValid) {
-                  alert(addressValidation.error)
-                  return
-                }
-                if (!amountValidation.isValid) {
-                  alert(amountValidation.error)
-                  return
-                }
-                if (!periodValidation.isValid) {
-                  alert(periodValidation.error)
-                  return
-                }
-                
-                onConfirmAction('createSingleLock')
-              }}
+              onClick={validateAndExecuteSingleLock}
               disabled={!canPerformAction || !singleLock.userAddress || !singleLock.amount || actionLoading}
               className="mt-4 w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:opacity-50 text-white font-semibold px-4 py-3 rounded-lg transition-all duration-200"
             >
-              Create User Lock
+              {actionLoading ? 'Processing...' : 'Create User Lock'}
             </button>
           </div>
 
@@ -453,15 +523,11 @@ export default function AdminPanel({
 
               {batchLocks.length > 0 && (
                 <button
-                  onClick={() => {
-                    if (validateBatchLocks()) {
-                      onConfirmAction('createBatchLocks')
-                    }
-                  }}
+                  onClick={validateAndExecuteBatchLocks}
                   disabled={!canPerformAction || batchLocks.length === 0 || actionLoading}
                   className="w-full bg-orange-600 hover:bg-orange-700 disabled:bg-gray-600 disabled:opacity-50 text-white font-semibold px-4 py-3 rounded-lg transition-all duration-200"
                 >
-                  Create {batchLocks.length} User Locks
+                  {actionLoading ? 'Processing...' : `Create ${batchLocks.length} User Locks`}
                 </button>
               )}
             </div>

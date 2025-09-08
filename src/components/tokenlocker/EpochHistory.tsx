@@ -1,7 +1,7 @@
-// components/tokenlocker/EpochHistory.tsx
+// components/tokenlocker/EpochHistory.tsx - UPDATED FOR NEW EPOCH SYSTEM
 import React, { useState, useMemo } from 'react'
-import { Calendar, BarChart3, Hash, ExternalLink, ChevronDown, ChevronUp, Filter, Search, Clock, CheckCircle } from 'lucide-react'
-import { TokenLockerService } from '../../services/tokenLockerService'
+import { Calendar, BarChart3, Hash, ExternalLink, ChevronDown, ChevronUp, Filter, Search, Clock, CheckCircle, ChevronLeft, ChevronRight, AlertTriangle, Play, Pause } from 'lucide-react'
+import { TokenLockerService, type EpochInfo } from '../../services/tokenLockerService'
 import LoadingSkeleton from './LoadingSkeleton'
 
 interface EpochHistoryProps {
@@ -19,64 +19,75 @@ export default function EpochHistory({
   onRefresh 
 }: EpochHistoryProps) {
   const [expandedEpoch, setExpandedEpoch] = useState<number | null>(null)
-  const [filterStatus, setFilterStatus] = useState<'all' | 'claimable' | 'finalized'>('all')
+  const [filterStatus, setFilterStatus] = useState<'all' | 'created' | 'claimable' | 'pending'>('all')
   const [searchTerm, setSearchTerm] = useState('')
+  const [currentSlide, setCurrentSlide] = useState(0)
+  const [itemsPerPage] = useState(6) // Show 6 epochs per carousel page
 
-  // Enhanced epoch data from events
-  const epochData = useMemo(() => {
-    if (!dashboardData?.events) return []
-    
-    // Extract WeeklyRevenueAdded events
-    const revenueEvents = dashboardData.events.filter((event: any) => 
-      event.type === 'WeeklyRevenueAdded'
-    ).map((event: any) => ({
-      epochId: parseInt(event.data.epoch_id || '0'),
-      totalRevenue: TokenLockerService.formatSUIAmount(event.data.total_week_revenue || '0'),
-      weekPoolSui: TokenLockerService.formatSUIAmount(event.data.week_pool_sui || '0'),
-      threeMonthPoolSui: TokenLockerService.formatSUIAmount(event.data.three_month_pool_sui || '0'),
-      yearPoolSui: TokenLockerService.formatSUIAmount(event.data.year_pool_sui || '0'),
-      threeYearPoolSui: TokenLockerService.formatSUIAmount(event.data.three_year_pool_sui || '0'),
-      timestamp: TokenLockerService.formatTimestamp(event.timestamp),
-      txDigest: event.txDigest,
-      allocationsUsed: event.data.dynamic_allocations_used || false,
-      isClaimable: true, // Revenue events mean epoch is claimable
-      rawTimestamp: parseInt(event.timestamp),
-      rawTotalRevenue: parseFloat(event.data.total_week_revenue || '0'),
-      admin: event.admin
-    }))
-
-    // Sort by epoch ID descending (latest first)
-    return revenueEvents.sort((a, b) => b.epochId - a.epochId)
-  }, [dashboardData?.events])
+  // Get epochs from dashboard data (new enhanced format)
+  const allEpochs = useMemo<EpochInfo[]>(() => {
+    if (!dashboardData?.epochs) return []
+    return dashboardData.epochs
+  }, [dashboardData?.epochs])
 
   // Filter epochs based on search and status
   const filteredEpochs = useMemo(() => {
-    let filtered = epochData
+    let filtered = allEpochs
 
     if (searchTerm) {
       filtered = filtered.filter(epoch => 
         epoch.epochId.toString().includes(searchTerm) ||
-        epoch.txDigest.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        epoch.admin.toLowerCase().includes(searchTerm.toLowerCase())
+        epoch.txDigest?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        epoch.admin?.toLowerCase().includes(searchTerm.toLowerCase())
       )
     }
 
     if (filterStatus !== 'all') {
       filtered = filtered.filter(epoch => {
-        if (filterStatus === 'claimable') return epoch.isClaimable
-        if (filterStatus === 'finalized') return epoch.isClaimable // All revenue events are finalized
+        if (filterStatus === 'claimable') return epoch.status === 'claimable'
+        if (filterStatus === 'created') return epoch.status === 'created'
+        if (filterStatus === 'pending') return epoch.status === 'pending'
         return true
       })
     }
 
     return filtered
-  }, [epochData, searchTerm, filterStatus])
+  }, [allEpochs, searchTerm, filterStatus])
 
-  const getEpochStatusBadge = (epoch: any) => {
+  // Carousel pagination
+  const totalSlides = Math.ceil(filteredEpochs.length / itemsPerPage)
+  const currentEpochs = filteredEpochs.slice(
+    currentSlide * itemsPerPage,
+    (currentSlide + 1) * itemsPerPage
+  )
+
+  const nextSlide = () => {
+    setCurrentSlide((prev) => (prev + 1) % totalSlides)
+  }
+
+  const prevSlide = () => {
+    setCurrentSlide((prev) => (prev - 1 + totalSlides) % totalSlides)
+  }
+
+  const goToSlide = (slide: number) => {
+    setCurrentSlide(slide)
+  }
+
+  const getEpochStatusBadge = (epoch: EpochInfo) => {
+    const statusConfig = {
+      'claimable': { color: 'bg-green-500/20 text-green-400', icon: CheckCircle, label: 'Claimable' },
+      'created': { color: 'bg-blue-500/20 text-blue-400', icon: Clock, label: 'Created' },
+      'pending': { color: 'bg-orange-500/20 text-orange-400', icon: AlertTriangle, label: 'Needs Creation' },
+      'revenue_added': { color: 'bg-purple-500/20 text-purple-400', icon: CheckCircle, label: 'Revenue Added' }
+    }
+
+    const config = statusConfig[epoch.status] || statusConfig['pending']
+    const Icon = config.icon
+
     return (
-      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-400">
-        <CheckCircle className="w-3 h-3 mr-1" />
-        Claimable
+      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${config.color}`}>
+        <Icon className="w-3 h-3 mr-1" />
+        {config.label}
       </span>
     )
   }
@@ -101,22 +112,62 @@ export default function EpochHistory({
     return dashboardData.timing.current
   }
 
+  const getProtocolInfo = () => {
+    if (!dashboardData?.timing?.protocol) return null
+    return dashboardData.timing.protocol
+  }
+
   const currentEpoch = getCurrentEpochInfo()
+  const protocolInfo = getProtocolInfo()
 
   return (
     <div className="space-y-6">
+      {/* Protocol Status Banner */}
+      {protocolInfo && (
+        <div className={`border rounded-xl p-4 ${
+          protocolInfo.initialized 
+            ? 'bg-green-500/10 border-green-500/20' 
+            : 'bg-orange-500/10 border-orange-500/20'
+        }`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              {protocolInfo.initialized ? (
+                <CheckCircle className="w-5 h-5 text-green-400" />
+              ) : (
+                <AlertTriangle className="w-5 h-5 text-orange-400" />
+              )}
+              <div>
+                <h3 className="font-semibold text-white">
+                  Protocol Status: {protocolInfo.initialized ? 'Initialized' : 'Not Initialized'}
+                </h3>
+                <p className="text-sm text-slate-400">
+                  {protocolInfo.initialized 
+                    ? `Total Epochs: ${protocolInfo.totalEpochs} • Duration: ${protocolInfo.epochDuration}`
+                    : 'Protocol timing needs to be initialized to enable epoch management'
+                  }
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={onRefresh}
+              disabled={loadingStates.dashboard}
+              className="flex items-center space-x-2 bg-slate-700/50 hover:bg-slate-700/70 text-slate-300 hover:text-white px-3 py-2 rounded-lg transition-all duration-200 disabled:opacity-50"
+            >
+              <Clock className={`w-4 h-4 ${loadingStates.dashboard ? 'animate-spin' : ''}`} />
+              <span className="text-sm">Refresh</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Current Epoch Status */}
       {currentEpoch && (
         <div className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/20 rounded-xl p-6">
           <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
             <Clock className="w-5 h-5 mr-2 text-purple-400" />
-            Current Epoch Status
+            Current Epoch #{currentEpoch.id}
           </h3>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="bg-slate-800/30 rounded-lg p-4">
-              <div className="text-slate-400 text-sm">Epoch ID</div>
-              <div className="text-2xl font-bold text-white">#{currentEpoch.id}</div>
-            </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-slate-800/30 rounded-lg p-4">
               <div className="text-slate-400 text-sm">Progress</div>
               <div className="text-2xl font-bold text-white">{currentEpoch.progress?.toFixed(1) || '0'}%</div>
@@ -145,21 +196,13 @@ export default function EpochHistory({
         </div>
       )}
 
-      {/* Epoch History Section */}
+      {/* Epoch Carousel Section */}
       <div className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/30 rounded-xl p-6">
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-lg font-semibold text-white flex items-center">
             <BarChart3 className="w-5 h-5 mr-2 text-blue-400" />
-            Epoch Revenue History
+            Epoch Timeline ({filteredEpochs.length} Total)
           </h3>
-          <button
-            onClick={onRefresh}
-            disabled={loadingStates.dashboard}
-            className="flex items-center space-x-2 bg-slate-700/50 hover:bg-slate-700/70 text-slate-300 hover:text-white px-3 py-2 rounded-lg transition-all duration-200 disabled:opacity-50"
-          >
-            <Clock className={`w-4 h-4 ${loadingStates.dashboard ? 'animate-spin' : ''}`} />
-            <span className="text-sm">Refresh</span>
-          </button>
         </div>
 
         {/* Filters and Search */}
@@ -185,202 +228,245 @@ export default function EpochHistory({
             >
               <option value="all">All Epochs</option>
               <option value="claimable">Claimable</option>
-              <option value="finalized">Finalized</option>
+              <option value="created">Created</option>
+              <option value="pending">Needs Creation</option>
             </select>
           </div>
         </div>
 
         {/* Statistics Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <div className="bg-slate-700/30 rounded-lg p-4">
             <div className="text-slate-400 text-sm">Total Epochs</div>
-            <div className="text-2xl font-bold text-white">{epochData.length}</div>
-            <div className="text-green-400 text-sm">Revenue distributed</div>
+            <div className="text-2xl font-bold text-white">{allEpochs.length}</div>
+            <div className="text-blue-400 text-sm">In system</div>
+          </div>
+          <div className="bg-slate-700/30 rounded-lg p-4">
+            <div className="text-slate-400 text-sm">Claimable</div>
+            <div className="text-2xl font-bold text-green-400">
+              {allEpochs.filter(e => e.status === 'claimable').length}
+            </div>
+            <div className="text-green-400 text-sm">Ready for users</div>
+          </div>
+          <div className="bg-slate-700/30 rounded-lg p-4">
+            <div className="text-slate-400 text-sm">Pending Creation</div>
+            <div className="text-2xl font-bold text-orange-400">
+              {allEpochs.filter(e => e.status === 'pending').length}
+            </div>
+            <div className="text-orange-400 text-sm">Need admin action</div>
           </div>
           <div className="bg-slate-700/30 rounded-lg p-4">
             <div className="text-slate-400 text-sm">Total SUI Revenue</div>
             <div className="text-2xl font-bold text-white">
-              {epochData.reduce((sum, epoch) => sum + epoch.rawTotalRevenue, 0).toLocaleString()} SUI
+              {allEpochs.reduce((sum, epoch) => {
+                const amount = parseFloat(epoch.totalRevenue.replace(/[^\d.-]/g, '')) || 0
+                return sum + amount
+              }, 0).toLocaleString()} SUI
             </div>
-            <div className="text-blue-400 text-sm">All time</div>
-          </div>
-          <div className="bg-slate-700/30 rounded-lg p-4">
-            <div className="text-slate-400 text-sm">Latest Epoch</div>
-            <div className="text-2xl font-bold text-white">
-              #{epochData[0]?.epochId || 'N/A'}
-            </div>
-            <div className="text-purple-400 text-sm">Most recent</div>
+            <div className="text-purple-400 text-sm">All time</div>
           </div>
         </div>
 
-        {/* Epochs List */}
+        {/* Epoch Carousel */}
         {loadingStates.dashboard ? (
           <LoadingSkeleton type="table" />
         ) : filteredEpochs.length > 0 ? (
           <div className="space-y-4">
-            {filteredEpochs.map((epoch) => (
-              <div key={epoch.epochId} className="bg-slate-700/20 border border-slate-600/30 rounded-lg overflow-hidden">
-                <div 
-                  className="p-4 cursor-pointer hover:bg-slate-700/30 transition-colors"
-                  onClick={() => setExpandedEpoch(expandedEpoch === epoch.epochId ? null : epoch.epochId)}
+            {/* Carousel Navigation */}
+            {totalSlides > 1 && (
+              <div className="flex items-center justify-between">
+                <button
+                  onClick={prevSlide}
+                  className="flex items-center space-x-2 bg-slate-700/50 hover:bg-slate-700/70 text-slate-300 hover:text-white px-3 py-2 rounded-lg transition-all duration-200"
                 >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-4">
-                      <div className="bg-purple-500/20 rounded-lg p-3">
-                        <Calendar className="w-5 h-5 text-purple-400" />
-                      </div>
-                      <div>
-                        <div className="flex items-center space-x-3">
+                  <ChevronLeft className="w-4 h-4" />
+                  <span>Previous</span>
+                </button>
+                
+                <div className="flex items-center space-x-2">
+                  {Array.from({ length: totalSlides }, (_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => goToSlide(i)}
+                      className={`w-3 h-3 rounded-full transition-all duration-200 ${
+                        i === currentSlide ? 'bg-purple-500' : 'bg-slate-600 hover:bg-slate-500'
+                      }`}
+                    />
+                  ))}
+                </div>
+                
+                <button
+                  onClick={nextSlide}
+                  className="flex items-center space-x-2 bg-slate-700/50 hover:bg-slate-700/70 text-slate-300 hover:text-white px-3 py-2 rounded-lg transition-all duration-200"
+                >
+                  <span>Next</span>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            {/* Carousel Content */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+              {currentEpochs.map((epoch) => (
+                <div key={epoch.epochId} className="bg-slate-700/20 border border-slate-600/30 rounded-lg overflow-hidden">
+                  <div 
+                    className="p-4 cursor-pointer hover:bg-slate-700/30 transition-colors"
+                    onClick={() => setExpandedEpoch(expandedEpoch === epoch.epochId ? null : epoch.epochId)}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center space-x-3">
+                        <div className="bg-purple-500/20 rounded-lg p-2">
+                          <Calendar className="w-4 h-4 text-purple-400" />
+                        </div>
+                        <div>
                           <h4 className="text-white font-semibold">Epoch #{epoch.epochId}</h4>
-                          {getEpochStatusBadge(epoch)}
-                        </div>
-                        <div className="text-slate-400 text-sm mt-1">
-                          Revenue Added: {epoch.timestamp} by {TokenLockerService.formatAddress(epoch.admin)}
+                          <div className="text-slate-400 text-xs">Week {epoch.weekNumber}</div>
                         </div>
                       </div>
+                      {getEpochStatusBadge(epoch)}
                     </div>
-                    <div className="flex items-center space-x-4">
-                      <div className="text-right">
-                        <div className="text-white font-semibold">{epoch.totalRevenue}</div>
-                        <div className="text-slate-400 text-sm">Total SUI</div>
+
+                    {/* Current epoch progress bar */}
+                    {epoch.isCurrentEpoch && epoch.progress !== undefined && (
+                      <div className="mb-3">
+                        <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                          <span>Current Epoch Progress</span>
+                          <span>{epoch.progress}%</span>
+                        </div>
+                        <div className="w-full bg-slate-700 rounded-full h-2">
+                          <div 
+                            className="bg-purple-500 h-2 rounded-full transition-all duration-300"
+                            style={{ width: `${Math.min(100, epoch.progress)}%` }}
+                          ></div>
+                        </div>
                       </div>
+                    )}
+
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-slate-400 text-sm">Total Revenue:</span>
+                        <span className="text-white font-semibold text-sm">{epoch.totalRevenue}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400 text-sm">Status:</span>
+                        <span className="text-white text-sm">{epoch.timestamp}</span>
+                      </div>
+                      {epoch.admin && epoch.admin !== 'pending' && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-400 text-sm">Admin:</span>
+                          <span className="text-white text-sm font-mono">
+                            {TokenLockerService.formatAddress(epoch.admin)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-center mt-3 pt-3 border-t border-slate-600/30">
                       {expandedEpoch === epoch.epochId ? (
-                        <ChevronUp className="w-5 h-5 text-slate-400" />
+                        <ChevronUp className="w-4 h-4 text-slate-400" />
                       ) : (
-                        <ChevronDown className="w-5 h-5 text-slate-400" />
+                        <ChevronDown className="w-4 h-4 text-slate-400" />
                       )}
                     </div>
                   </div>
-                </div>
 
-                {/* Expanded Details */}
-                {expandedEpoch === epoch.epochId && (
-                  <div className="border-t border-slate-600/30 p-4 bg-slate-800/20">
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      {/* Pool Distribution */}
-                      <div>
-                        <h5 className="text-white font-medium mb-3 flex items-center">
-                          <BarChart3 className="w-4 h-4 mr-2 text-blue-400" />
-                          Pool Distribution
-                        </h5>
-                        <div className="space-y-3">
-                          {[
-                            { period: '1 Week', amount: epoch.weekPoolSui, color: 'bg-blue-500' },
-                            { period: '3 Months', amount: epoch.threeMonthPoolSui, color: 'bg-green-500' },
-                            { period: '1 Year', amount: epoch.yearPoolSui, color: 'bg-yellow-500' },
-                            { period: '3 Years', amount: epoch.threeYearPoolSui, color: 'bg-purple-500' }
-                          ].map(({ period, amount, color }) => (
-                            <div key={period} className="flex items-center justify-between p-3 bg-slate-700/30 rounded-lg">
-                              <div className="flex items-center space-x-3">
-                                <div className={`w-3 h-3 rounded-full ${color}`}></div>
-                                <span className="text-white font-medium">{period}</span>
+                  {/* Expanded Details */}
+                  {expandedEpoch === epoch.epochId && (
+                    <div className="border-t border-slate-600/30 p-4 bg-slate-800/20">
+                      <div className="grid grid-cols-1 gap-4">
+                        {/* Pool Distribution */}
+                        <div>
+                          <h5 className="text-white font-medium mb-3 flex items-center">
+                            <BarChart3 className="w-4 h-4 mr-2 text-blue-400" />
+                            Pool Distribution
+                          </h5>
+                          <div className="space-y-2">
+                            {[
+                              { period: '1 Week', amount: epoch.poolDistribution.weekPoolSui, color: 'bg-blue-500' },
+                              { period: '3 Months', amount: epoch.poolDistribution.threeMonthPoolSui, color: 'bg-green-500' },
+                              { period: '1 Year', amount: epoch.poolDistribution.yearPoolSui, color: 'bg-yellow-500' },
+                              { period: '3 Years', amount: epoch.poolDistribution.threeYearPoolSui, color: 'bg-purple-500' }
+                            ].map(({ period, amount, color }) => (
+                              <div key={period} className="flex items-center justify-between p-2 bg-slate-700/30 rounded text-sm">
+                                <div className="flex items-center space-x-2">
+                                  <div className={`w-2 h-2 rounded-full ${color}`}></div>
+                                  <span className="text-white">{period}</span>
+                                </div>
+                                <span className="text-white font-semibold">{amount}</span>
                               </div>
-                              <span className="text-white font-semibold">{amount}</span>
-                            </div>
-                          ))}
+                            ))}
+                          </div>
                         </div>
-                      </div>
 
-                      {/* Transaction Details */}
-                      <div>
-                        <h5 className="text-white font-medium mb-3 flex items-center">
-                          <Hash className="w-4 h-4 mr-2 text-green-400" />
-                          Transaction Details
-                        </h5>
-                        <div className="space-y-3">
-                          <div className="p-3 bg-slate-700/30 rounded-lg">
-                            <div className="text-slate-400 text-sm mb-1">Transaction Hash</div>
-                            <div className="flex items-center space-x-2">
-                              <span className="text-white font-mono text-sm">
-                                {epoch.txDigest.slice(0, 8)}...{epoch.txDigest.slice(-6)}
-                              </span>
-                              <button
-                                onClick={() => copyToClipboard(epoch.txDigest)}
-                                className="text-blue-400 hover:text-blue-300 p-1"
-                                title="Copy full hash"
-                              >
-                                <Hash className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => window.open(`https://suiscan.xyz/mainnet/tx/${epoch.txDigest}`, '_blank')}
-                                className="text-green-400 hover:text-green-300 p-1"
-                                title="View on Suiscan"
-                              >
-                                <ExternalLink className="w-4 h-4" />
-                              </button>
+                        {/* Transaction Details */}
+                        {epoch.txDigest && (
+                          <div>
+                            <h5 className="text-white font-medium mb-3 flex items-center">
+                              <Hash className="w-4 h-4 mr-2 text-green-400" />
+                              Transaction Details
+                            </h5>
+                            <div className="space-y-2">
+                              <div className="p-2 bg-slate-700/30 rounded text-sm">
+                                <div className="text-slate-400 text-xs mb-1">Transaction Hash</div>
+                                <div className="flex items-center space-x-2">
+                                  <span className="text-white font-mono text-xs">
+                                    {epoch.txDigest.slice(0, 8)}...{epoch.txDigest.slice(-6)}
+                                  </span>
+                                  <button
+                                    onClick={() => copyToClipboard(epoch.txDigest || '')}
+                                    className="text-blue-400 hover:text-blue-300 p-1"
+                                    title="Copy full hash"
+                                  >
+                                    <Hash className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    onClick={() => window.open(`https://suiscan.xyz/mainnet/tx/${epoch.txDigest}`, '_blank')}
+                                    className="text-green-400 hover:text-green-300 p-1"
+                                    title="View on Suiscan"
+                                  >
+                                    <ExternalLink className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </div>
                             </div>
                           </div>
-                          
-                          <div className="p-3 bg-slate-700/30 rounded-lg">
-                            <div className="text-slate-400 text-sm mb-1">Added By</div>
-                            <div className="text-white font-medium">
-                              {TokenLockerService.formatAddress(epoch.admin)}
-                            </div>
-                          </div>
+                        )}
 
-                          <div className="p-3 bg-slate-700/30 rounded-lg">
-                            <div className="text-slate-400 text-sm mb-1">Added On</div>
-                            <div className="text-white font-medium">
-                              {formatDate(epoch.rawTimestamp)}
+                        {/* Timing Information */}
+                        <div>
+                          <h5 className="text-white font-medium mb-3 flex items-center">
+                            <Clock className="w-4 h-4 mr-2 text-orange-400" />
+                            Timing Information
+                          </h5>
+                          <div className="space-y-2 text-sm">
+                            <div className="flex justify-between">
+                              <span className="text-slate-400">Week Start:</span>
+                              <span className="text-white">{formatDate(epoch.weekStart)}</span>
                             </div>
-                          </div>
-
-                          <div className="p-3 bg-slate-700/30 rounded-lg">
-                            <div className="text-slate-400 text-sm mb-1">Allocations</div>
-                            <div className="flex items-center space-x-2">
-                              <span className={`text-sm font-medium ${epoch.allocationsUsed ? 'text-green-400' : 'text-yellow-400'}`}>
-                                {epoch.allocationsUsed ? 'Dynamic' : 'Default'}
-                              </span>
-                              {epoch.allocationsUsed && (
-                                <span className="text-xs text-green-300 bg-green-500/20 px-2 py-1 rounded">
-                                  Custom Allocations Applied
-                                </span>
-                              )}
+                            <div className="flex justify-between">
+                              <span className="text-slate-400">Week End:</span>
+                              <span className="text-white">{formatDate(epoch.weekEnd)}</span>
                             </div>
+                            {epoch.isCurrentEpoch && (
+                              <div className="text-center mt-2 p-2 bg-purple-500/20 rounded text-purple-300 text-xs">
+                                🕒 Current Active Epoch
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
                     </div>
+                  )}
+                </div>
+              ))}
+            </div>
 
-                    {/* Action Buttons */}
-                    <div className="flex items-center justify-between mt-6 pt-4 border-t border-slate-600/30">
-                      <div className="flex items-center space-x-2 text-sm text-slate-400">
-                        <Clock className="w-4 h-4" />
-                        <span>Revenue distributed {epoch.timestamp}</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <button
-                          onClick={() => copyToClipboard(JSON.stringify({
-                            epochId: epoch.epochId,
-                            totalRevenue: epoch.totalRevenue,
-                            txDigest: epoch.txDigest,
-                            timestamp: epoch.timestamp,
-                            admin: epoch.admin,
-                            poolDistribution: {
-                              week: epoch.weekPoolSui,
-                              threeMonth: epoch.threeMonthPoolSui,
-                              year: epoch.yearPoolSui,
-                              threeYear: epoch.threeYearPoolSui
-                            }
-                          }, null, 2))}
-                          className="flex items-center space-x-2 bg-slate-600/50 hover:bg-slate-600/70 text-slate-300 px-3 py-1.5 rounded text-sm transition-colors"
-                        >
-                          <Hash className="w-3 h-3" />
-                          <span>Copy Data</span>
-                        </button>
-                        <button
-                          onClick={() => window.open(`https://suiscan.xyz/mainnet/tx/${epoch.txDigest}`, '_blank')}
-                          className="flex items-center space-x-2 bg-green-600/50 hover:bg-green-600/70 text-green-300 px-3 py-1.5 rounded text-sm transition-colors"
-                        >
-                          <ExternalLink className="w-3 h-3" />
-                          <span>View Transaction</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
+            {/* Carousel Page Info */}
+            {totalSlides > 1 && (
+              <div className="text-center text-slate-400 text-sm">
+                Page {currentSlide + 1} of {totalSlides} • Showing {currentEpochs.length} of {filteredEpochs.length} epochs
               </div>
-            ))}
+            )}
           </div>
         ) : (
           <div className="text-center text-slate-400 py-12">
@@ -389,7 +475,9 @@ export default function EpochHistory({
             <p className="text-sm">
               {searchTerm || filterStatus !== 'all' 
                 ? 'Try adjusting your search or filter criteria'
-                : 'No revenue has been added to any epochs yet'
+                : protocolInfo?.initialized 
+                  ? 'No epochs have been created yet'
+                  : 'Protocol needs to be initialized first'
               }
             </p>
           </div>

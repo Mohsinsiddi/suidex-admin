@@ -1,4 +1,4 @@
-// components/tokenlocker/TokenLockerTab.tsx - REFACTORED MAIN CONTAINER
+// components/tokenlocker/TokenLockerTab.tsx - COMPLETE FIXED VERSION
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { useWallet } from '@suiet/wallet-kit'
 import { useAuth } from '../../contexts/AuthContext'
@@ -35,7 +35,7 @@ export default function TokenLockerTab() {
   const [revenueAmount, setRevenueAmount] = useState('')
   const [victoryDepositAmount, setVictoryDepositAmount] = useState('')
   
-  // Lock creation states
+  // Lock creation states (these are now mainly for fallback/default values)
   const [singleLock, setSingleLock] = useState({
     userAddress: '',
     amount: '',
@@ -43,8 +43,9 @@ export default function TokenLockerTab() {
   })
   const [batchLocks, setBatchLocks] = useState<any[]>([])
 
-  // Transaction modal state
+  // Transaction modal state - UPDATED to handle data
   const [confirmAction, setConfirmAction] = useState<string | null>(null)
+  const [currentActionData, setCurrentActionData] = useState<any>(null) // NEW: Store action data
   const [actionLoading, setActionLoading] = useState(false)
 
   const { connected, account, signAndExecuteTransaction } = useWallet()
@@ -84,9 +85,9 @@ export default function TokenLockerTab() {
     loadDashboardData()
   }, [loadDashboardData])
 
-  // Handle transaction execution
+  // UPDATED: Handle transaction execution with async transaction builders and enhanced error handling
   const handleTransaction = async (
-    txBuilder: () => any,
+    txBuilder: () => any | Promise<any>,
     action: string,
     onSuccess?: () => void
   ) => {
@@ -97,7 +98,28 @@ export default function TokenLockerTab() {
 
     try {
       setActionLoading(true)
-      const tx = txBuilder()
+      
+      // Pre-flight check for Victory token operations
+      if (action.includes('lock') && account?.address) {
+        console.log('Checking admin wallet before transaction...')
+        await TokenLockerService.debugAdminWallet(account.address)
+        
+        const balanceCheck = await TokenLockerService.checkAdminVictoryBalance(account.address)
+        console.log('Admin balance check:', balanceCheck)
+        
+        if (!balanceCheck.hasTokens) {
+          const proceed = confirm(`No Victory tokens found in admin wallet (${balanceCheck.formattedBalance}). Do you want to proceed with minting approach?`)
+          if (!proceed) {
+            setActionLoading(false)
+            return
+          }
+        }
+      }
+      
+      // Handle both sync and async transaction builders
+      const tx = await Promise.resolve(txBuilder())
+      
+      console.log('Transaction built successfully, executing...')
       
       const result = await signAndExecuteTransaction({
         transaction: tx,
@@ -112,40 +134,62 @@ export default function TokenLockerTab() {
         onSuccess?.()
         loadDashboardData()
         setConfirmAction(null)
+        setCurrentActionData(null) // Clear action data
       } else {
         throw new Error('Transaction failed')
       }
     } catch (error) {
       console.error(`Error ${action}:`, error)
-      alert(`Error ${action}: ${TokenLockerService.getTokenLockerOperationErrorMessage(error)}`)
+      
+      // Enhanced error handling
+      let errorMessage = TokenLockerService.getTokenLockerOperationErrorMessage(error)
+      
+      if (error.message?.includes('victory_token_coin_id') || error.message?.includes('TypeMismatch')) {
+        errorMessage = 'Victory token coin error. Please ensure admin wallet has Victory tokens or check configuration.'
+      }
+      
+      alert(`Error ${action}: ${errorMessage}`)
     } finally {
       setActionLoading(false)
     }
   }
 
-  // Handle confirmation actions
-  const handleConfirmAction = useCallback((action: string) => {
+  // UPDATED: Handle confirmation actions with data parameter
+  const handleConfirmAction = useCallback((action: string, data?: any) => {
+    console.log('Action:', action, 'Data:', data) // Debug log
+    
+    // Store the data for the modal
+    setCurrentActionData(data)
+    setConfirmAction(action)
+  }, [])
+
+  // UPDATED: Handle final confirmation with stored data and improved transaction building
+  const handleFinalConfirm = useCallback(async (action: string) => {
     switch (action) {
       case 'depositVictory':
+        const depositAmount = currentActionData?.victoryDepositAmount || victoryDepositAmount
         handleTransaction(
-          () => TokenLockerService.buildDepositVictoryTokensTransaction(victoryDepositAmount),
+          () => TokenLockerService.buildDepositVictoryTokensTransaction(depositAmount),
           'Deposit Victory tokens',
           () => setVictoryDepositAmount('')
         )
         break
       case 'updateVictoryAllocations':
+        const vAllocations = currentActionData?.victoryAllocations || victoryAllocations
         handleTransaction(
-          () => TokenLockerService.buildConfigureVictoryAllocationsTransaction(victoryAllocations),
+          () => TokenLockerService.buildConfigureVictoryAllocationsTransaction(vAllocations),
           'Update Victory allocations'
         )
         break
       case 'updateSUIAllocations':
+        const sAllocations = currentActionData?.suiAllocations || suiAllocations
         handleTransaction(
-          () => TokenLockerService.buildConfigureSUIAllocationsTransaction(suiAllocations),
+          () => TokenLockerService.buildConfigureSUIAllocationsTransaction(sAllocations),
           'Update SUI allocations'
         )
         break
       case 'addWeeklyRevenue':
+        // This one uses the existing revenueAmount state, not from data
         handleTransaction(
           () => TokenLockerService.buildAddWeeklySUIRevenueTransaction(revenueAmount),
           'Add weekly SUI revenue',
@@ -153,25 +197,65 @@ export default function TokenLockerTab() {
         )
         break
       case 'createSingleLock':
+        // KEY FIX: Use data from AdminPanel with proper async handling
+        const lockData = currentActionData?.singleLock || singleLock
+        
+        if (!account?.address) {
+          alert('Admin wallet not connected')
+          return
+        }
+        
+        console.log('Creating lock with data:', lockData)
+        
         handleTransaction(
-          () => TokenLockerService.buildCreateUserLockTransaction(
-            singleLock.userAddress,
-            singleLock.amount,
-            singleLock.lockPeriod
-          ),
+          async () => {
+            return await TokenLockerService.buildCreateUserLockTransaction(
+              account.address, // Admin address for coin fetching
+              lockData.userAddress,
+              lockData.amount,
+              lockData.lockPeriod
+            )
+          },
           'Create user lock',
           () => setSingleLock({ userAddress: '', amount: '', lockPeriod: 90 })
         )
         break
       case 'createBatchLocks':
+        // KEY FIX: Use data from AdminPanel with proper async handling
+        const batchData = currentActionData?.batchLocks || batchLocks
+        
+        if (!account?.address) {
+          alert('Admin wallet not connected')
+          return
+        }
+        
+        console.log('Creating batch locks with data:', batchData)
+        
         handleTransaction(
-          () => TokenLockerService.buildBatchCreateUserLocksTransaction(batchLocks),
+          async () => {
+            return await TokenLockerService.buildBatchCreateUserLocksTransaction(
+              account.address, // Admin address for coin fetching
+              batchData
+            )
+          },
           'Create batch locks',
           () => setBatchLocks([])
         )
         break
+      case 'createNextEpoch':
+        handleTransaction(
+          () => TokenLockerService.buildCreateNextEpochTransaction(),
+          'Create next epoch'
+        )
+        break
     }
-  }, [victoryDepositAmount, victoryAllocations, suiAllocations, revenueAmount, singleLock, batchLocks])
+  }, [currentActionData, victoryDepositAmount, victoryAllocations, suiAllocations, revenueAmount, singleLock, batchLocks, account])
+
+  // UPDATED: Handle cancel with data cleanup
+  const handleCancel = useCallback(() => {
+    setConfirmAction(null)
+    setCurrentActionData(null) // Clear stored data
+  }, [])
 
   // Copy to clipboard utility
   const copyToClipboard = (text: string) => {
@@ -268,7 +352,7 @@ export default function TokenLockerTab() {
           setSuiAllocations={setSuiAllocations}
           victoryDepositAmount={victoryDepositAmount}
           setVictoryDepositAmount={setVictoryDepositAmount}
-          onConfirmAction={setConfirmAction}
+          onConfirmAction={handleConfirmAction} // Now handles data parameter
           actionLoading={actionLoading}
         />
       )}
@@ -280,7 +364,7 @@ export default function TokenLockerTab() {
           canPerformAction={canPerformAction}
           revenueAmount={revenueAmount}
           setRevenueAmount={setRevenueAmount}
-          onConfirmAction={setConfirmAction}
+          onConfirmAction={handleConfirmAction} // Updated to use new handler
           onRefresh={loadDashboardData}
           actionLoading={actionLoading}
         />
@@ -294,19 +378,19 @@ export default function TokenLockerTab() {
         />
       )}
 
-      {/* Transaction Confirmation Modal */}
+      {/* UPDATED: Transaction Confirmation Modal with currentActionData */}
       {confirmAction && (
         <TransactionModal
           action={confirmAction}
           dashboardData={dashboardData}
-          victoryAllocations={victoryAllocations}
-          suiAllocations={suiAllocations}
-          revenueAmount={revenueAmount}
-          victoryDepositAmount={victoryDepositAmount}
-          singleLock={singleLock}
-          batchLocks={batchLocks}
-          onConfirm={handleConfirmAction}
-          onCancel={() => setConfirmAction(null)}
+          victoryAllocations={currentActionData?.victoryAllocations || victoryAllocations}
+          suiAllocations={currentActionData?.suiAllocations || suiAllocations}
+          revenueAmount={revenueAmount} // This uses existing state
+          victoryDepositAmount={currentActionData?.victoryDepositAmount || victoryDepositAmount}
+          singleLock={currentActionData?.singleLock || singleLock} // KEY FIX: Use data from AdminPanel
+          batchLocks={currentActionData?.batchLocks || batchLocks} // KEY FIX: Use data from AdminPanel
+          onConfirm={handleFinalConfirm} // Updated to use new handler
+          onCancel={handleCancel} // Updated to use new handler
           loading={actionLoading}
         />
       )}
