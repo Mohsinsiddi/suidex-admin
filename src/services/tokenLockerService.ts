@@ -1,4 +1,4 @@
-// components/tokenlocker/services/tokenLockerService.ts - UPDATED FOR NEW EPOCH SYSTEM
+// components/tokenlocker/services/tokenLockerService.ts - COMPLETE UPDATED VERSION
 import { Transaction } from '@mysten/sui/transactions'
 import { suiClient } from '../utils/suiClient'
 import { CONSTANTS } from '../constants'
@@ -131,6 +131,239 @@ export class TokenLockerService {
   static mistToSui(mist: string): string {
     const num = BigInt(mist)
     return (Number(num) / 1e9).toString()
+  }
+
+  // NEW: CRITICAL FIX - Convert lock period to numeric days with validation
+  static convertLockPeriodToDays(lockPeriod: number | string): number {
+    // Handle numeric input directly
+    if (typeof lockPeriod === 'number') {
+      // Validate it's a reasonable lock period
+      if (lockPeriod === 7 || lockPeriod === 90 || lockPeriod === 365 || lockPeriod === 1095) {
+        return lockPeriod
+      }
+      // If it's a reasonable small number, assume it's already in days
+      if (lockPeriod > 0 && lockPeriod <= 1095) {
+        return lockPeriod
+      }
+      // Default fallback
+      return 90
+    }
+    
+    // Handle string input
+    const periodMap: Record<string, number> = {
+      '1 Week': 7,
+      '3 Months': 90,
+      '1 Year': 365,
+      '3 Years': 1095,
+      'week': 7,
+      'threeMonth': 90,
+      'year': 365,
+      'threeYear': 1095,
+      '7': 7,
+      '90': 90,
+      '365': 365,
+      '1095': 1095
+    }
+    
+    const result = periodMap[lockPeriod] || parseInt(lockPeriod.toString()) || 90
+    
+    // Final validation - ensure result is a valid lock period
+    const validPeriods = [7, 90, 365, 1095]
+    if (!validPeriods.includes(result)) {
+      console.warn(`Invalid lock period ${lockPeriod}, defaulting to 90 days`)
+      return 90
+    }
+    
+    return result
+  }
+
+  // NEW: Debug helper to check coin types in wallet
+  static async debugAdminWallet(adminAddress: string): Promise<void> {
+    try {
+      console.log('=== DEBUGGING ADMIN WALLET ===')
+      console.log('Admin address:', adminAddress)
+      console.log('Expected Victory token type:', CONSTANTS.VICTORY_TOKEN.TYPE)
+      
+      const allCoins = await suiClient.getAllCoins({ owner: adminAddress })
+      console.log('Total coins in wallet:', allCoins.data?.length || 0)
+      
+      if (allCoins.data && allCoins.data.length > 0) {
+        const coinTypes = new Set(allCoins.data.map(coin => coin.coinType))
+        coinTypes.forEach(type => {
+          const coinsOfType = allCoins.data.filter(coin => coin.coinType === type)
+          const totalBalance = coinsOfType.reduce((sum, coin) => sum + BigInt(coin.balance), BigInt(0))
+          console.log(`  ${type}: ${coinsOfType.length} coins, balance: ${totalBalance}`)
+        })
+      }
+      
+      const victoryCoins = await suiClient.getCoins({
+        owner: adminAddress,
+        coinType: CONSTANTS.VICTORY_TOKEN.TYPE
+      })
+      
+      console.log('Victory token coins found:', victoryCoins.data?.length || 0)
+      console.log('=== END DEBUG ===')
+    } catch (error) {
+      console.error('Debug error:', error)
+    }
+  }
+
+  // NEW: Helper - Check admin Victory token balance
+  static async checkAdminVictoryBalance(adminAddress: string): Promise<{
+    hasTokens: boolean,
+    totalBalance: string,
+    coinCount: number,
+    formattedBalance: string
+  }> {
+    try {
+      const coins = await suiClient.getCoins({
+        owner: adminAddress,
+        coinType: CONSTANTS.VICTORY_TOKEN.TYPE
+      })
+
+      const totalBalance = coins.data?.reduce((sum, coin) => 
+        sum + BigInt(coin.balance), BigInt(0)
+      ) || BigInt(0)
+
+      return {
+        hasTokens: totalBalance > 0,
+        totalBalance: totalBalance.toString(),
+        coinCount: coins.data?.length || 0,
+        formattedBalance: this.mistToVictory(totalBalance.toString()) + ' VICTORY'
+      }
+    } catch (error) {
+      console.error('Error checking admin balance:', error)
+      return {
+        hasTokens: false,
+        totalBalance: '0',
+        coinCount: 0,
+        formattedBalance: '0 VICTORY'
+      }
+    }
+  }
+
+  // NEW: Fetch Victory token coins from admin wallet
+  // FIXED: Fetch Victory token coins from admin wallet
+  static async fetchVictoryTokenCoins(adminAddress: string, requiredAmount: string): Promise<string[]> {
+    try {
+      const coins = await suiClient.getCoins({
+        owner: adminAddress,
+        coinType: CONSTANTS.VICTORY_TOKEN.TYPE
+      })
+
+      if (!coins.data || coins.data.length === 0) {
+        throw new Error(`No Victory token coins found. Admin needs Victory tokens in wallet.`)
+      }
+
+      // FIX: Proper BigInt comparison for sorting
+      const sortedCoins = coins.data.sort((a, b) => {
+        const balanceA = BigInt(a.balance)
+        const balanceB = BigInt(b.balance)
+        
+        // Convert BigInt comparison to number for sort
+        if (balanceA > balanceB) return -1  // b should come first (descending)
+        if (balanceA < balanceB) return 1   // a should come first
+        return 0  // equal
+      })
+
+      const validCoinIds = sortedCoins
+        .map(coin => coin.coinObjectId)
+        .filter(id => id && id.startsWith('0x'))
+
+      if (validCoinIds.length === 0) {
+        throw new Error('No valid coin object IDs found')
+      }
+
+      const totalBalance = sortedCoins.reduce((sum, coin) => 
+        sum + BigInt(coin.balance), BigInt(0)
+      )
+
+      if (totalBalance < BigInt(requiredAmount)) {
+        throw new Error(
+          `Insufficient Victory tokens. Required: ${this.mistToVictory(requiredAmount)} VICTORY, Available: ${this.mistToVictory(totalBalance.toString())} VICTORY`
+        )
+      }
+
+      return validCoinIds
+    } catch (error) {
+      console.error('Error fetching Victory token coins:', error)
+      throw error
+    }
+  }
+
+  // NEW: Alternative - Use Treasury/Minting approach if admin has no Victory tokens
+  static buildMintAndCreateUserLockTransaction(
+    userAddress: string,
+    amount: string,
+    lockPeriod: number | string
+  ): Transaction {
+    const tx = new Transaction()
+    
+    const lockPeriodDays = this.convertLockPeriodToDays(lockPeriod)
+    console.log('Mint approach - Lock period:', lockPeriod, '->', lockPeriodDays, 'days')
+    
+    const [mintedCoins] = tx.moveCall({
+      target: `${CONSTANTS.PACKAGE_ID}::victory_token::mint`,
+      arguments: [
+        tx.object(CONSTANTS.VICTORY_TOKEN.MINTER_CAP_ID),
+        tx.pure.u64(amount)
+      ]
+    })
+    
+    tx.moveCall({
+      target: `${CONSTANTS.PACKAGE_ID}::victory_token_locker::admin_create_user_lock`,
+      arguments: [
+        tx.object(CONSTANTS.TOKEN_LOCKER_ID),
+        tx.object(CONSTANTS.VAULT_IDS.LOCKER_LOCKED_VAULT_ID),
+        mintedCoins,
+        tx.pure.address(userAddress),
+        tx.pure.u64(lockPeriodDays),
+        tx.object(CONSTANTS.GLOBAL_EMISSION_CONTROLLER_ID),
+        tx.object(CONSTANTS.TOKEN_LOCKER_ADMIN_CAP_ID),
+        tx.object(CONSTANTS.CLOCK_ID)
+      ]
+    })
+    
+    return tx
+  }
+
+  // NEW: Method 1 - Use existing Victory tokens from wallet
+  static async buildCreateUserLockWithExistingTokens(
+    adminAddress: string,
+    userAddress: string,
+    amount: string,
+    lockPeriod: number | string
+  ): Promise<Transaction> {
+    const tx = new Transaction()
+    
+    const lockPeriodDays = this.convertLockPeriodToDays(lockPeriod)
+    console.log('Existing tokens approach - Lock period:', lockPeriod, '->', lockPeriodDays, 'days')
+    
+    const coinIds = await this.fetchVictoryTokenCoins(adminAddress, amount)
+    const primaryCoin = tx.object(coinIds[0])
+    
+    if (coinIds.length > 1) {
+      const otherCoins = coinIds.slice(1).map(id => tx.object(id))
+      tx.mergeCoins(primaryCoin, otherCoins)
+    }
+    
+    const [splitCoin] = tx.splitCoins(primaryCoin, [tx.pure.u64(amount)])
+    
+    tx.moveCall({
+      target: `${CONSTANTS.PACKAGE_ID}::victory_token_locker::admin_create_user_lock`,
+      arguments: [
+        tx.object(CONSTANTS.TOKEN_LOCKER_ID),
+        tx.object(CONSTANTS.VAULT_IDS.LOCKER_LOCKED_VAULT_ID),
+        splitCoin,
+        tx.pure.address(userAddress),
+        tx.pure.u64(lockPeriodDays),
+        tx.object(CONSTANTS.GLOBAL_EMISSION_CONTROLLER_ID),
+        tx.object(CONSTANTS.TOKEN_LOCKER_ADMIN_CAP_ID),
+        tx.object(CONSTANTS.CLOCK_ID)
+      ]
+    })
+    
+    return tx
   }
 
   static async fetchVaultBalance(vaultId: string, isVictoryVault: boolean = true): Promise<string> {
@@ -1009,66 +1242,148 @@ export class TokenLockerService {
     return tx
   }
 
-  // Create single user lock (for presale/admin)
-  static buildCreateUserLockTransaction(
+  // UPDATED: Create single user lock (for presale/admin) - ENHANCED ERROR HANDLING
+  static async buildCreateUserLockTransaction(
+    adminAddress: string,
     userAddress: string,
     amount: string,
-    lockPeriod: number
-  ): Transaction {
-    const tx = new Transaction()
-    
-    // Get Victory token coins from wallet instead of gas (SUI)
-    // This requires the admin to have Victory tokens in their wallet
-    const victoryCoins = tx.splitCoins(tx.object('VICTORY_TOKEN_COIN_ID'), [tx.pure.u64(amount)])
-    
-    tx.moveCall({
-      target: `${CONSTANTS.PACKAGE_ID}::victory_token_locker::admin_create_user_lock`,
-      arguments: [
-        tx.object(CONSTANTS.TOKEN_LOCKER_ID),
-        tx.object(CONSTANTS.VAULT_IDS.LOCKER_LOCKED_VAULT_ID),
-        victoryCoins[0], // Use Victory token coin
-        tx.pure.address(userAddress),
-        tx.pure.u64(lockPeriod),
-        tx.object(CONSTANTS.GLOBAL_EMISSION_CONTROLLER_ID),
-        tx.object(CONSTANTS.TOKEN_LOCKER_ADMIN_CAP_ID),
-        tx.object(CONSTANTS.CLOCK_ID)
-      ]
-    })
-    return tx
+    lockPeriod: number | string
+  ): Promise<Transaction> {
+    try {
+      console.log('=== BUILDING CREATE USER LOCK TRANSACTION ===')
+      console.log('Inputs:', { adminAddress, userAddress, amount, lockPeriod })
+      
+      // Convert and validate lock period first
+      const lockPeriodDays = this.convertLockPeriodToDays(lockPeriod)
+      console.log('Converted lock period:', lockPeriod, '->', lockPeriodDays)
+      
+      // Validate inputs
+      if (!adminAddress || !userAddress || !amount) {
+        throw new Error('Missing required parameters: adminAddress, userAddress, or amount')
+      }
+      
+      if (lockPeriodDays <= 0 || lockPeriodDays > 5000) {
+        throw new Error(`Invalid lock period: ${lockPeriodDays} days`)
+      }
+      
+      const balanceCheck = await this.checkAdminVictoryBalance(adminAddress)
+      console.log('Balance check result:', balanceCheck)
+      
+      if (balanceCheck.hasTokens && BigInt(balanceCheck.totalBalance) >= BigInt(amount)) {
+        console.log('✅ Using existing Victory tokens from wallet')
+        console.log('Calling buildCreateUserLockWithExistingTokens...')
+        
+        try {
+          const result = await this.buildCreateUserLockWithExistingTokens(adminAddress, userAddress, amount, lockPeriodDays)
+          console.log('✅ Successfully built transaction with existing tokens')
+          return result
+        } catch (existingTokensError) {
+          console.error('❌ Error using existing tokens:', existingTokensError)
+          console.error('Falling back to mint approach...')
+          
+          // Fallback to mint approach
+          console.log('🔄 Falling back to mint approach')
+          const mintResult = this.buildMintAndCreateUserLockTransaction(userAddress, amount, lockPeriodDays)
+          console.log('✅ Successfully built transaction with mint approach')
+          return mintResult
+        }
+      } else {
+        console.log('💰 Using mint approach (insufficient balance or no tokens)')
+        const mintResult = this.buildMintAndCreateUserLockTransaction(userAddress, amount, lockPeriodDays)
+        console.log('✅ Successfully built transaction with mint approach')
+        return mintResult
+      }
+    } catch (error) {
+      console.error('=== TRANSACTION BUILD FAILED ===')
+      console.error('Error type:', typeof error)
+      console.error('Error message:', error?.message)
+      console.error('Error details:', error)
+      console.error('Error stack:', error?.stack)
+      
+      // Re-throw with more context
+      const contextualError = new Error(`Failed to build create user lock transaction: ${error?.message || 'Unknown error'}`)
+      contextualError.stack = error?.stack
+      throw contextualError
+    }
   }
 
-  // Batch user lock creation
-  static buildBatchCreateUserLocksTransaction(
+  // UPDATED: Batch user lock creation - FIXED VERSION
+  static async buildBatchCreateUserLocksTransaction(
+    adminAddress: string,
     operations: BatchLockOperation[]
-  ): Transaction {
+  ): Promise<Transaction> {
     const tx = new Transaction()
     
-    // Prepare arrays for batch operation
-    const userAddresses = operations.map(op => op.userAddress)
-    const amounts = operations.map(op => op.amount)
-    const lockPeriods = operations.map(op => op.lockPeriod.toString())
-    
-    // Calculate total amount needed
-    const totalAmount = amounts.reduce((sum, amount) => sum + BigInt(amount), BigInt(0))
-    
-    // Split coins for the total amount
-    const [coin] = tx.splitCoins(tx.gas, [tx.pure.u64(totalAmount.toString())])
-    
-    tx.moveCall({
-      target: `${CONSTANTS.PACKAGE_ID}::victory_token_locker::admin_batch_create_user_locks`,
-      arguments: [
-        tx.object(CONSTANTS.TOKEN_LOCKER_ID),
-        tx.object(CONSTANTS.VAULT_IDS.LOCKER_LOCKED_VAULT_ID),
-        coin,
-        tx.pure.vector('address', userAddresses),
-        tx.pure.vector('u64', amounts),
-        tx.pure.vector('u64', lockPeriods),
-        tx.object(CONSTANTS.GLOBAL_EMISSION_CONTROLLER_ID),
-        tx.object(CONSTANTS.TOKEN_LOCKER_ADMIN_CAP_ID),
-        tx.object(CONSTANTS.CLOCK_ID)
-      ]
-    })
-    return tx
+    try {
+      const totalAmount = operations.reduce((sum, op) => sum + BigInt(op.amount), BigInt(0))
+      console.log('Building batch transaction for', operations.length, 'operations, total:', totalAmount.toString())
+      
+      // Convert all lock periods and prepare arrays
+      const userAddresses = operations.map(op => op.userAddress)
+      const amounts = operations.map(op => op.amount)
+      const lockPeriods = operations.map(op => this.convertLockPeriodToDays(op.lockPeriod).toString())
+      
+      console.log('Converted lock periods:', lockPeriods)
+      
+      const balanceCheck = await this.checkAdminVictoryBalance(adminAddress)
+      
+      if (balanceCheck.hasTokens && BigInt(balanceCheck.totalBalance) >= totalAmount) {
+        // Use existing tokens
+        const coinIds = await this.fetchVictoryTokenCoins(adminAddress, totalAmount.toString())
+        const primaryCoin = tx.object(coinIds[0])
+        
+        if (coinIds.length > 1) {
+          const otherCoins = coinIds.slice(1).map(id => tx.object(id))
+          tx.mergeCoins(primaryCoin, otherCoins)
+        }
+        
+        const [totalCoin] = tx.splitCoins(primaryCoin, [tx.pure.u64(totalAmount.toString())])
+        
+        tx.moveCall({
+          target: `${CONSTANTS.PACKAGE_ID}::victory_token_locker::admin_batch_create_user_locks`,
+          arguments: [
+            tx.object(CONSTANTS.TOKEN_LOCKER_ID),
+            tx.object(CONSTANTS.VAULT_IDS.LOCKER_LOCKED_VAULT_ID),
+            totalCoin,
+            tx.pure.vector('address', userAddresses),
+            tx.pure.vector('u64', amounts),
+            tx.pure.vector('u64', lockPeriods),
+            tx.object(CONSTANTS.GLOBAL_EMISSION_CONTROLLER_ID),
+            tx.object(CONSTANTS.TOKEN_LOCKER_ADMIN_CAP_ID),
+            tx.object(CONSTANTS.CLOCK_ID)
+          ]
+        })
+      } else {
+        // Use mint approach
+        const [mintedCoins] = tx.moveCall({
+          target: `${CONSTANTS.PACKAGE_ID}::victory_token::mint`,
+          arguments: [
+            tx.object(CONSTANTS.VICTORY_TOKEN.MINTER_CAP_ID),
+            tx.pure.u64(totalAmount.toString())
+          ]
+        })
+        
+        tx.moveCall({
+          target: `${CONSTANTS.PACKAGE_ID}::victory_token_locker::admin_batch_create_user_locks`,
+          arguments: [
+            tx.object(CONSTANTS.TOKEN_LOCKER_ID),
+            tx.object(CONSTANTS.VAULT_IDS.LOCKER_LOCKED_VAULT_ID),
+            mintedCoins,
+            tx.pure.vector('address', userAddresses),
+            tx.pure.vector('u64', amounts),
+            tx.pure.vector('u64', lockPeriods),
+            tx.object(CONSTANTS.GLOBAL_EMISSION_CONTROLLER_ID),
+            tx.object(CONSTANTS.TOKEN_LOCKER_ADMIN_CAP_ID),
+            tx.object(CONSTANTS.CLOCK_ID)
+          ]
+        })
+      }
+      
+      return tx
+    } catch (error) {
+      console.error('Error building batch transaction:', error)
+      throw error
+    }
   }
 
   // Vault creation transactions
@@ -1219,12 +1534,15 @@ export class TokenLockerService {
     }
   }
 
-  // ERROR HANDLING
+  // ERROR HANDLING - UPDATED
 
   static getTokenLockerOperationErrorMessage(error: any): string {
     if (typeof error === 'string') return error
     
     if (error?.message) {
+      if (error.message.includes('Invalid u64 value')) {
+        return 'Invalid lock period value. Please check the lock period configuration.'
+      }
       if (error.message.includes('E_NOT_AUTHORIZED')) {
         return 'Only admin can perform this operation'
       }
@@ -1538,145 +1856,6 @@ export class TokenLockerService {
         timing: this.getEpochTimingInfo(defaultConfig),
         epochs: []
       }
-    }
-  }
-
-  // Debug helper to check coin types in wallet
-  static async debugAdminWallet(adminAddress: string): Promise<void> {
-    try {
-      console.log('=== DEBUGGING ADMIN WALLET ===')
-      console.log('Admin address:', adminAddress)
-      console.log('Package ID:', CONSTANTS.PACKAGE_ID)
-      console.log('Expected Victory token type:', CONSTANTS.VICTORY_TOKEN.TYPE)
-      
-      // Get all coins first
-      const allCoins = await suiClient.getAllCoins({
-        owner: adminAddress
-      })
-      
-      console.log('Total coins in wallet:', allCoins.data?.length || 0)
-      
-      if (allCoins.data && allCoins.data.length > 0) {
-        console.log('All coin types found:')
-        const coinTypes = new Set(allCoins.data.map(coin => coin.coinType))
-        coinTypes.forEach(type => {
-          const coinsOfType = allCoins.data.filter(coin => coin.coinType === type)
-          const totalBalance = coinsOfType.reduce((sum, coin) => sum + BigInt(coin.balance), BigInt(0))
-          console.log(`  ${type}: ${coinsOfType.length} coins, balance: ${totalBalance}`)
-        })
-      }
-      
-      // Try to get Victory tokens specifically
-      const victoryCoins = await suiClient.getCoins({
-        owner: adminAddress,
-        coinType: CONSTANTS.VICTORY_TOKEN.TYPE
-      })
-      
-      console.log('Victory token coins found:', victoryCoins.data?.length || 0)
-      if (victoryCoins.data) {
-        victoryCoins.data.forEach((coin, index) => {
-          console.log(`  Victory coin ${index}:`, coin.coinObjectId, 'balance:', coin.balance)
-        })
-      }
-      
-      console.log('=== END DEBUG ===')
-    } catch (error) {
-      console.error('Debug error:', error)
-    }
-  }
-
-  // Helper: Check admin Victory token balance
-  static async checkAdminVictoryBalance(adminAddress: string): Promise<{
-    hasTokens: boolean,
-    totalBalance: string,
-    coinCount: number,
-    formattedBalance: string
-  }> {
-    try {
-      const coins = await suiClient.getCoins({
-        owner: adminAddress,
-        coinType: CONSTANTS.VICTORY_TOKEN.TYPE
-      })
-
-      const totalBalance = coins.data?.reduce((sum, coin) => 
-        sum + BigInt(coin.balance), BigInt(0)
-      ) || BigInt(0)
-
-      return {
-        hasTokens: totalBalance > 0,
-        totalBalance: totalBalance.toString(),
-        coinCount: coins.data?.length || 0,
-        formattedBalance: this.mistToVictory(totalBalance.toString()) + ' VICTORY'
-      }
-    } catch (error) {
-      console.error('Error checking admin balance:', error)
-      return {
-        hasTokens: false,
-        totalBalance: '0',
-        coinCount: 0,
-        formattedBalance: '0 VICTORY'
-      }
-    }
-  }
-
-  // FIXED: Fetch Victory token coins from admin wallet
-  static async fetchVictoryTokenCoins(adminAddress: string, requiredAmount: string): Promise<string[]> {
-    try {
-      // Debug logging
-      console.log('Fetching coins for address:', adminAddress)
-      console.log('Package ID from constants:', CONSTANTS.PACKAGE_ID)
-      console.log('Victory token type:', CONSTANTS.VICTORY_TOKEN.TYPE)
-      
-      const coins = await suiClient.getCoins({
-        owner: adminAddress,
-        coinType: CONSTANTS.VICTORY_TOKEN.TYPE
-      })
-
-      console.log('Coins response:', coins)
-
-      if (!coins.data || coins.data.length === 0) {
-        // Get all coins to see what's available
-        const allCoins = await suiClient.getAllCoins({
-          owner: adminAddress
-        })
-        console.log('All coins in wallet:', allCoins.data)
-        
-        throw new Error(`No Victory token coins found. Expected type: ${CONSTANTS.VICTORY_TOKEN.TYPE}. Found ${allCoins.data?.length || 0} total coins in wallet.`)
-      }
-
-      // Sort by balance descending
-      const sortedCoins = coins.data.sort((a, b) => 
-        BigInt(b.balance) - BigInt(a.balance)
-      )
-
-      // Validate coin object IDs
-      const validCoinIds = sortedCoins
-        .map(coin => coin.coinObjectId)
-        .filter(id => id && id.startsWith('0x'))
-
-      if (validCoinIds.length === 0) {
-        throw new Error('No valid coin object IDs found in Victory token coins')
-      }
-
-      console.log('Valid coin IDs found:', validCoinIds)
-
-      // Calculate total available balance
-      const totalBalance = sortedCoins.reduce((sum, coin) => 
-        sum + BigInt(coin.balance), BigInt(0)
-      )
-
-      console.log(`Victory token balance: ${totalBalance}, Required: ${requiredAmount}`)
-
-      if (totalBalance < BigInt(requiredAmount)) {
-        throw new Error(
-          `Insufficient Victory tokens. Required: ${this.mistToVictory(requiredAmount)} VICTORY, Available: ${this.mistToVictory(totalBalance.toString())} VICTORY`
-        )
-      }
-
-      return validCoinIds
-    } catch (error) {
-      console.error('Error fetching Victory token coins:', error)
-      throw error
     }
   }
 
