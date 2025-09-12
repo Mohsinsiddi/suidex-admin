@@ -1163,6 +1163,21 @@ export class TokenLockerService {
     return tx
   }
 
+  static buildInitializeProtocolTimingTransaction(): Transaction {
+    const tx = new Transaction()
+    
+    tx.moveCall({
+      target: `${CONSTANTS.PACKAGE_ID}::victory_token_locker::initialize_protocol_timing`,
+      arguments: [
+        tx.object(CONSTANTS.TOKEN_LOCKER_ID),
+        tx.object(CONSTANTS.TOKEN_LOCKER_ADMIN_CAP_ID),
+        tx.object(CONSTANTS.CLOCK_ID)
+      ]
+    })
+    
+    return tx
+  }
+
   // Configure Victory allocations
   static buildConfigureVictoryAllocationsTransaction(allocations: {
     week: number

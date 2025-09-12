@@ -606,6 +606,18 @@ export default function EpochManager({
         </div>
       )}
 
+      {/* Add this in the Protocol Status section when not initialized */}
+      {!protocolInfo?.initialized && canPerformAction && (
+        <button
+          onClick={() => onConfirmAction('initializeProtocol')}
+          disabled={actionLoading}
+          className="mt-4 w-full bg-orange-600 hover:bg-orange-700 disabled:bg-gray-600 disabled:opacity-50 text-white font-semibold px-4 py-3 rounded-lg transition-all duration-200"
+        >
+          <PlayCircle className="w-4 h-4 mr-2" />
+          {actionLoading ? 'Initializing...' : 'Initialize Protocol Timing'}
+        </button>
+      )}
+
       {/* Warning for Admin Actions */}
       {!canPerformAction && (
         <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4">

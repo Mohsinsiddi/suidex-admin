@@ -164,6 +164,26 @@ export default function TransactionModal({
             { label: 'Total Expected', value: protocolInfo?.totalEpochs?.toString() || 'Unknown' }
           ]
         }
+       
+      case 'initializeProtocol':
+        const protocolStatus = dashboardData?.timing?.protocol
+        
+        return {
+          title: 'Initialize Protocol Timing',
+          description: 'Initialize the protocol timing system to enable predictable epoch scheduling.',
+          warning: 'This will set the protocol start time and enable the epoch system. This can only be done once.',
+          buttonText: 'Initialize Protocol',
+          buttonColor: 'bg-orange-600 hover:bg-orange-700',
+          icon: Calendar,
+          details: [
+            { label: 'Current Status', value: protocolStatus?.initialized ? 'Already Initialized' : 'Not Initialized' },
+            { label: 'Action', value: 'Set protocol timing' },
+            { label: 'Epoch Duration', value: '7 days' },
+            { label: 'Expected Epochs', value: '156 total' }
+          ],
+          isValid: !protocolStatus?.initialized,
+          specialNote: 'After initialization, you can create epochs and add weekly SUI revenue.'
+        }  
 
       case 'createSingleLock':
         if (!singleLock) {

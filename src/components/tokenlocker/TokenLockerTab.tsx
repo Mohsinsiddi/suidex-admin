@@ -242,6 +242,12 @@ export default function TokenLockerTab() {
           () => setBatchLocks([])
         )
         break
+      case 'initializeProtocol':
+        handleTransaction(
+          () => TokenLockerService.buildInitializeProtocolTimingTransaction(),
+          'Initialize protocol timing'
+        )
+        break  
       case 'createNextEpoch':
         handleTransaction(
           () => TokenLockerService.buildCreateNextEpochTransaction(),
