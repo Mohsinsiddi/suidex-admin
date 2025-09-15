@@ -1166,10 +1166,19 @@ export class TokenLockerService {
   static buildInitializeProtocolTimingTransaction(): Transaction {
     const tx = new Transaction()
     
+    // Calculate current timestamp + 60 seconds for protocol start
+    const startTimestamp = Math.floor(Date.now() / 1000) + 60
+    
+    // 7 days in seconds (using your test constant of 600 seconds per day)
+    const epochDurationSeconds = 7 * 600 // For testnet
+    // For production, use: const epochDurationSeconds = 7 * 86400
+    
     tx.moveCall({
       target: `${CONSTANTS.PACKAGE_ID}::victory_token_locker::initialize_protocol_timing`,
       arguments: [
         tx.object(CONSTANTS.TOKEN_LOCKER_ID),
+        tx.pure.u64(startTimestamp),
+        tx.pure.u64(epochDurationSeconds),
         tx.object(CONSTANTS.TOKEN_LOCKER_ADMIN_CAP_ID),
         tx.object(CONSTANTS.CLOCK_ID)
       ]
