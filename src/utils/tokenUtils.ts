@@ -382,6 +382,7 @@ export const fetchCompleteTokenData = async (userAddress?: string): Promise<{
 }
 
 // Build deposit transaction for farm vault
+// Build deposit transaction for farm vault
 export const buildFarmDepositTransaction = (
   amount: string, 
   userCoins: any[], 
@@ -402,14 +403,14 @@ export const buildFarmDepositTransaction = (
   // Use provided vault ID or fallback to static constant
   const vaultId = farmVaultId || CONSTANTS.VAULT_IDS.FARM_REWARD_VAULT_ID
 
-  // Use the correct function name from the farm contract
+  // Use the correct function name from the farm contract with proper arguments
   tx.moveCall({
     target: `${CONSTANTS.PACKAGE_ID}::${CONSTANTS.MODULES.FARM}::deposit_victory_tokens`,
     arguments: [
-      tx.object(vaultId),
-      depositCoin,
-      tx.object(CONSTANTS.ADMIN_CAP_ID),
-      tx.object(CONSTANTS.CLOCK_ID)
+      tx.object(vaultId),                           // vault: &mut VictoryRewardVault
+      depositCoin,                                  // tokens: Coin<VICTORY_TOKEN>
+      tx.object(CONSTANTS.FARM_ADMIN_CAP_ID),       // _admin: &AdminCap (use correct admin cap)
+      tx.object(CONSTANTS.CLOCK_ID)                 // clock: &Clock
     ]
   })
 
