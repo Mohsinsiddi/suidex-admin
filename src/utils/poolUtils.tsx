@@ -162,7 +162,7 @@ export const buildCreatePoolTransaction = (
         tx.pure.u256(depositFee),
         tx.pure.u256(withdrawalFee),
         tx.pure.bool(isNativePair),
-        tx.object(CONSTANTS.ADMIN_CAP_ID),
+        tx.object(CONSTANTS.FARM_ADMIN_CAP_ID),
         tx.object(CONSTANTS.CLOCK_ID)
       ],
       typeArguments: [token0!, token1!]
@@ -176,7 +176,7 @@ export const buildCreatePoolTransaction = (
         tx.pure.u256(depositFee),
         tx.pure.u256(withdrawalFee),
         tx.pure.bool(isNativePair),
-        tx.object(CONSTANTS.ADMIN_CAP_ID),
+        tx.object(CONSTANTS.FARM_ADMIN_CAP_ID),
         tx.object(CONSTANTS.CLOCK_ID)
       ],
       typeArguments: [singleToken!]
