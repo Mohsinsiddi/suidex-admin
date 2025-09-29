@@ -62,12 +62,14 @@ export interface TokenLockerConfig {
 }
 
 // NEW: Enhanced epoch info interface
+// UPDATED: Enhanced epoch info interface with funding count
 export interface EpochInfo {
   epochId: number
   weekNumber: number
   weekStart: number
   weekEnd: number
   totalRevenue: string
+  fundingCount?: number // ADD THIS
   isClaimable: boolean
   allocationsFinalized: boolean
   poolDistribution: {
@@ -463,6 +465,7 @@ export class TokenLockerService {
   }
 
   // NEW: Enhanced epoch fetching (event-based with predictable scheduling)
+  // UPDATED: Enhanced epoch fetching with funding count
   static async fetchAllEpochsInfo(): Promise<EpochInfo[]> {
     try {
       // Get protocol timing first
@@ -497,11 +500,20 @@ export class TokenLockerService {
           const epochId = parseInt(eventData.epoch_id || '0')
           createdEpochIds.add(epochId)
 
-          // Find matching revenue event
-          const revenueEvent = revenueEvents.data?.find(rev => {
+          // Find ALL matching revenue events (for multiple funding)
+          const epochRevenueEvents = revenueEvents.data?.filter(rev => {
             const revData = rev.parsedJson as any
             return parseInt(revData.epoch_id || '0') === epochId
-          })
+          }) || []
+          
+          // Calculate total revenue from all funding events
+          const totalRevenue = epochRevenueEvents.reduce((sum, rev) => {
+            const revData = rev.parsedJson as any
+            return sum + BigInt(revData.amount || 0)
+          }, BigInt(0))
+          
+          // Get latest revenue event for pool distribution
+          const latestRevenueEvent = epochRevenueEvents[0]
 
           const weekStart = parseInt(eventData.week_start || '0')
           const weekEnd = parseInt(eventData.week_end || '0')
@@ -514,16 +526,15 @@ export class TokenLockerService {
             weekNumber: parseInt(eventData.week_number || epochId.toString()),
             weekStart,
             weekEnd,
-            totalRevenue: revenueEvent ? 
-              this.formatSUIAmount((revenueEvent.parsedJson as any).total_week_revenue || '0') : 
-              '0 SUI',
-            isClaimable: !!revenueEvent,
-            allocationsFinalized: !!revenueEvent,
-            poolDistribution: revenueEvent ? {
-              weekPoolSui: this.formatSUIAmount((revenueEvent.parsedJson as any).week_pool_sui || '0'),
-              threeMonthPoolSui: this.formatSUIAmount((revenueEvent.parsedJson as any).three_month_pool_sui || '0'),
-              yearPoolSui: this.formatSUIAmount((revenueEvent.parsedJson as any).year_pool_sui || '0'),
-              threeYearPoolSui: this.formatSUIAmount((revenueEvent.parsedJson as any).three_year_pool_sui || '0')
+            totalRevenue: this.formatSUIAmount(totalRevenue.toString()),
+            fundingCount: epochRevenueEvents.length, // ADD THIS
+            isClaimable: epochRevenueEvents.length > 0,
+            allocationsFinalized: epochRevenueEvents.length > 0,
+            poolDistribution: latestRevenueEvent ? {
+              weekPoolSui: this.formatSUIAmount((latestRevenueEvent.parsedJson as any).week_pool_sui || '0'),
+              threeMonthPoolSui: this.formatSUIAmount((latestRevenueEvent.parsedJson as any).three_month_pool_sui || '0'),
+              yearPoolSui: this.formatSUIAmount((latestRevenueEvent.parsedJson as any).year_pool_sui || '0'),
+              threeYearPoolSui: this.formatSUIAmount((latestRevenueEvent.parsedJson as any).three_year_pool_sui || '0')
             } : {
               weekPoolSui: '0 SUI',
               threeMonthPoolSui: '0 SUI',
@@ -532,8 +543,8 @@ export class TokenLockerService {
             },
             timestamp: this.formatTimestamp(event.timestamp || '0'),
             txDigest: event.id.txDigest,
-            admin: (revenueEvent?.parsedJson as any)?.admin || 'system',
-            status: revenueEvent ? 'claimable' : 'created',
+            admin: latestRevenueEvent ? (latestRevenueEvent.parsedJson as any)?.admin : 'system',
+            status: epochRevenueEvents.length > 0 ? 'claimable' : 'created',
             isCurrentEpoch,
             progress: Math.round(progress)
           }
@@ -542,13 +553,12 @@ export class TokenLockerService {
         }
       }
 
-      // If protocol is initialized, add expected epochs that haven't been created yet
+      // Add pending epochs if protocol initialized
       if (protocolTiming.initialized && protocolTiming.protocolStart > 0) {
         const expectedEpochs = Math.min(156, Math.floor(
           (currentTime - protocolTiming.protocolStart) / protocolTiming.epochDuration
         ) + 1)
 
-        // Add placeholders for epochs that should exist but haven't been created
         for (let i = 1; i <= expectedEpochs; i++) {
           if (!createdEpochIds.has(i)) {
             const epochStart = protocolTiming.protocolStart + ((i - 1) * protocolTiming.epochDuration)
@@ -562,6 +572,7 @@ export class TokenLockerService {
               weekStart: epochStart,
               weekEnd: epochEnd,
               totalRevenue: '0 SUI',
+              fundingCount: 0, // ADD THIS
               isClaimable: false,
               allocationsFinalized: false,
               poolDistribution: {
@@ -580,9 +591,7 @@ export class TokenLockerService {
         }
       }
 
-      // Sort by epoch ID descending (latest first)
       return epochs.sort((a, b) => b.epochId - a.epochId)
-
     } catch (error) {
       console.error('Error fetching epochs info:', error)
       return []
@@ -1234,21 +1243,119 @@ export class TokenLockerService {
   }
 
   // Add weekly SUI revenue (UNCHANGED)
-  static buildAddWeeklySUIRevenueTransaction(amount: string): Transaction {
+  static async buildAddWeeklySUIRevenueTransaction(
+    adminAddress: string,
+    amount: string
+  ): Promise<Transaction> {
+    console.log('=== Building Add Weekly SUI Revenue Transaction ===')
+    console.log('Admin address:', adminAddress)
+    console.log('Amount requested:', amount)
+    
     const tx = new Transaction()
     
-    const [coin] = tx.splitCoins(tx.gas, [tx.pure.u64(amount)])
+    if (!amount || amount === '0') {
+      throw new Error('Invalid amount')
+    }
     
+    // Check for existing TEST_SUI coins
+    console.log('Checking for TEST_SUI coins...')
+    const coins = await suiClient.getCoins({
+      owner: adminAddress,
+      coinType: CONSTANTS.TEST_SUI.TYPE
+    })
+    
+    console.log('Found TEST_SUI coins:', coins.data?.length || 0)
+    
+    if (!coins.data || coins.data.length === 0) {
+      // No TEST_SUI coins, need to mint first in a SEPARATE transaction
+      throw new Error(
+        'No TEST_SUI coins found. Please mint TEST_SUI first:\n' +
+        '1. Call buildMintTestSuiTransaction() to mint TEST_SUI\n' +
+        '2. Then call this function again to add revenue'
+      )
+    }
+    
+    // Calculate total balance
+    const totalBalance = coins.data.reduce((sum, coin) => 
+      sum + BigInt(coin.balance), BigInt(0)
+    )
+    console.log('Total TEST_SUI balance:', totalBalance.toString(), 'MIST')
+    console.log('Required amount:', amount, 'MIST')
+    
+    if (totalBalance < BigInt(amount)) {
+      throw new Error(
+        `Insufficient TEST_SUI balance. Have: ${totalBalance}, Need: ${amount}`
+      )
+    }
+    
+    // Sort coins by balance (largest first for efficiency)
+    const sortedCoins = [...coins.data].sort((a, b) => {
+      const balanceA = BigInt(a.balance)
+      const balanceB = BigInt(b.balance)
+      if (balanceA > balanceB) return -1
+      if (balanceA < balanceB) return 1
+      return 0
+    })
+    
+    console.log('Coin details:')
+    sortedCoins.forEach((coin, i) => {
+      console.log(`  Coin ${i}: ${coin.coinObjectId}, Balance: ${coin.balance}`)
+    })
+    
+    // Use the first coin as primary
+    const primaryCoinId = sortedCoins[0].coinObjectId
+    const primaryCoin = tx.object(primaryCoinId)
+    console.log('Primary coin:', primaryCoinId)
+    
+    // Merge other coins if there are multiple
+    if (sortedCoins.length > 1) {
+      console.log('Merging', sortedCoins.length - 1, 'additional coins...')
+      const otherCoins = sortedCoins.slice(1).map(coin => {
+        console.log('  Merging coin:', coin.coinObjectId)
+        return tx.object(coin.coinObjectId)
+      })
+      tx.mergeCoins(primaryCoin, otherCoins)
+    }
+    
+    // Split the exact amount needed
+    console.log('Splitting amount:', amount, 'from merged coin')
+    const [testSuiCoin] = tx.splitCoins(primaryCoin, [tx.pure.u64(amount)])
+    
+    // Add revenue to the locker
+    console.log('Adding revenue to locker...')
     tx.moveCall({
       target: `${CONSTANTS.PACKAGE_ID}::victory_token_locker::add_weekly_sui_revenue`,
       arguments: [
         tx.object(CONSTANTS.TOKEN_LOCKER_ID),
         tx.object(CONSTANTS.VAULT_IDS.SUI_REWARD_VAULT_ID),
-        coin,
+        testSuiCoin,
         tx.object(CONSTANTS.TOKEN_LOCKER_ADMIN_CAP_ID),
         tx.object(CONSTANTS.CLOCK_ID)
       ]
     })
+    
+    console.log('=== Transaction Built Successfully ===')
+    return tx
+  }
+
+  // Helper function to mint TEST_SUI separately (call this first if needed)
+  static buildMintTestSuiTransaction(amount: string): Transaction {
+    console.log('=== Building Mint TEST_SUI Transaction ===')
+    console.log('Amount to mint:', amount)
+    
+    const tx = new Transaction()
+    
+    tx.moveCall({
+      target: `${CONSTANTS.PACKAGE_ID}::test_sui::mint`,
+      arguments: [
+        tx.object(CONSTANTS.TEST_SUI.TREASURY_CAP_WRAPPER_ID),
+        tx.pure.u64(amount),
+        tx.pure.address(CONSTANTS.ADMIN),
+        tx.object(CONSTANTS.TEST_SUI.MINTER_CAP_ID)
+      ]
+    })
+    
+    console.log('=== Mint Transaction Built ===')
     return tx
   }
 
@@ -1770,6 +1877,8 @@ export class TokenLockerService {
       progress: number
       timeRemaining: string
       status: string
+      allocationsFinalized: boolean  // Added
+      isClaimable: boolean          // Added
     }
     next: {
       startsIn: string
@@ -1796,7 +1905,7 @@ export class TokenLockerService {
       timeRemaining = this.formatDuration(remaining)
 
       status = config.currentEpoch.isClaimable ? 'Claimable' :
-               config.currentEpoch.allocationsFinalized ? 'Finalized' : 'Active'
+              config.currentEpoch.allocationsFinalized ? 'Finalized' : 'Active'
     }
 
     const nextEpochStart = config.currentEpoch.weekEnd > 0 ? 
@@ -1812,7 +1921,9 @@ export class TokenLockerService {
         id: config.currentEpoch.id,
         progress,
         timeRemaining,
-        status
+        status,
+        allocationsFinalized: config.currentEpoch.allocationsFinalized,  // Added
+        isClaimable: config.currentEpoch.isClaimable                    // Added
       },
       next: {
         startsIn,
@@ -1898,5 +2009,172 @@ export class TokenLockerService {
     
     const pendingEpochs = dashboardData.epochs.filter((e: any) => e.status === 'pending')
     return pendingEpochs.length > 0
+  }
+
+  // === EPOCH FUNDING TRACKING METHODS ===
+
+  /**
+   * Get funding history for a specific epoch
+   */
+  static async getEpochFundingHistory(epochId: number): Promise<{
+    totalFunded: string
+    fundingCount: number
+    fundingEvents: any[]
+    lastFundingTime?: string
+  }> {
+    try {
+      const revenueEvents = await suiClient.queryEvents({
+        query: {
+          MoveEventType: `${CONSTANTS.PACKAGE_ID}::victory_token_locker::WeeklyRevenueAdded`
+        },
+        limit: 100,
+        order: 'descending'
+      })
+      
+      const epochEvents = revenueEvents.data?.filter(event => {
+        const eventData = event.parsedJson as any
+        return parseInt(eventData.epoch_id) === epochId
+      }) || []
+      
+      // Sum all funding amounts for this epoch
+      const totalFunded = epochEvents.reduce((sum, event) => {
+        const eventData = event.parsedJson as any
+        return sum + BigInt(eventData.amount || 0)
+      }, BigInt(0))
+      
+      // Get last funding timestamp
+      const lastFundingTime = epochEvents.length > 0 
+        ? this.formatTimestamp(epochEvents[0].timestampMs || '0')
+        : undefined
+      
+      return {
+        totalFunded: this.formatSUIAmount(totalFunded.toString()),
+        fundingCount: epochEvents.length,
+        fundingEvents: epochEvents,
+        lastFundingTime
+      }
+    } catch (error) {
+      console.error('Error fetching epoch funding history:', error)
+      return {
+        totalFunded: '0 SUI',
+        fundingCount: 0,
+        fundingEvents: []
+      }
+    }
+  }
+
+  /**
+   * Get funding summary across all epochs
+   */
+  static async getAllEpochsFundingSummary(): Promise<{
+    totalRevenue: number
+    fundedEpochs: number
+    totalFundingEvents: number
+    averagePerEpoch: number
+  }> {
+    try {
+      const epochs = await this.fetchAllEpochsInfo()
+      
+      let totalRevenue = 0
+      let fundedEpochs = 0
+      let totalFundingEvents = 0
+      
+      for (const epoch of epochs) {
+        const amount = parseFloat(epoch.totalRevenue.replace(/[^\d.-]/g, '')) || 0
+        if (amount > 0) {
+          totalRevenue += amount
+          fundedEpochs++
+          
+          // Get funding count for this epoch
+          const funding = await this.getEpochFundingHistory(epoch.epochId)
+          totalFundingEvents += funding.fundingCount
+        }
+      }
+      
+      return {
+        totalRevenue,
+        fundedEpochs,
+        totalFundingEvents,
+        averagePerEpoch: fundedEpochs > 0 ? totalRevenue / fundedEpochs : 0
+      }
+    } catch (error) {
+      console.error('Error fetching funding summary:', error)
+      return {
+        totalRevenue: 0,
+        fundedEpochs: 0,
+        totalFundingEvents: 0,
+        averagePerEpoch: 0
+      }
+    }
+  }
+
+  /**
+   * Check if epoch can receive more funding
+   */
+  static canEpochReceiveFunding(epoch: EpochInfo): boolean {
+    // Based on contract analysis, epochs can always receive more funding
+    // even after being finalized
+    return epoch.epochId > 0 && epoch.status !== 'pending'
+  }
+
+  /**
+   * Get next epoch that needs creation
+   */
+  static getNextEpochToCreate(dashboardData: any): number | null {
+    if (!dashboardData?.epochs || !dashboardData?.timing?.protocol?.initialized) {
+      return null
+    }
+    
+    const pendingEpoch = dashboardData.epochs.find((e: any) => e.status === 'pending')
+    return pendingEpoch ? pendingEpoch.epochId : null
+  }
+
+  // === PROTOCOL STATUS HELPERS ===
+
+  /**
+   * Check if protocol is initialized
+   */
+  static async isProtocolInitialized(): Promise<boolean> {
+    const protocolTiming = await this.fetchProtocolTiming()
+    return protocolTiming.initialized
+  }
+
+  /**
+   * Get protocol initialization status with details
+   */
+  static async getProtocolStatus(): Promise<{
+    initialized: boolean
+    startTimestamp: number
+    epochDuration: string
+    currentEpoch: number
+    totalExpectedEpochs: number
+    readyForRevenue: boolean
+  }> {
+    const protocolTiming = await this.fetchProtocolTiming()
+    const currentTime = Date.now() / 1000
+    
+    if (!protocolTiming.initialized) {
+      return {
+        initialized: false,
+        startTimestamp: 0,
+        epochDuration: 'Not set',
+        currentEpoch: 0,
+        totalExpectedEpochs: 0,
+        readyForRevenue: false
+      }
+    }
+    
+    const currentEpoch = Math.floor(
+      (currentTime - protocolTiming.protocolStart) / protocolTiming.epochDuration
+    ) + 1
+    
+    return {
+      initialized: true,
+      startTimestamp: protocolTiming.protocolStart,
+      epochDuration: this.formatDuration(protocolTiming.epochDuration),
+      currentEpoch,
+      totalExpectedEpochs: protocolTiming.totalEpochs,
+      readyForRevenue: true
+    }
   }
 }

@@ -189,9 +189,17 @@ export default function TokenLockerTab() {
         )
         break
       case 'addWeeklyRevenue':
-        // This one uses the existing revenueAmount state, not from data
         handleTransaction(
-          () => TokenLockerService.buildAddWeeklySUIRevenueTransaction(revenueAmount),
+          async () => {
+            // Just add the admin address from account
+            if (!account?.address) {
+              throw new Error('No admin address')
+            }
+            return await TokenLockerService.buildAddWeeklySUIRevenueTransaction(
+              account.address,
+              revenueAmount  // This comes from state, not currentActionData
+            )
+          },
           'Add weekly SUI revenue',
           () => setRevenueAmount('')
         )
