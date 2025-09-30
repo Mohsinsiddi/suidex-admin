@@ -7,6 +7,8 @@ import {
 } from 'lucide-react'
 import { TokenLockerService, type EpochInfo } from '../../services/tokenLockerService'
 import LoadingSkeleton from './LoadingSkeleton'
+import { useWallet } from '@suiet/wallet-kit'
+import { ZapIcon } from '../icons'
 
 interface EpochHistoryProps {
   dashboardData: any
@@ -22,6 +24,7 @@ export default function EpochHistory({
   loadingStates, 
   onRefresh 
 }: EpochHistoryProps) {
+  const { account, signAndExecuteTransaction } = useWallet()
   const [expandedEpoch, setExpandedEpoch] = useState<number | null>(null)
   const [filterStatus, setFilterStatus] = useState<'all' | 'created' | 'claimable' | 'pending' | 'multi-funded'>('all')
   const [searchTerm, setSearchTerm] = useState('')
@@ -130,6 +133,41 @@ export default function EpochHistory({
     })
   }
 
+  const handleCreateNextEpoch = async () => {
+    if (!account) {
+      alert('Please connect wallet')
+      return
+    }
+
+    try {
+      const currentId = dashboardData?.timing?.current?.id || 0
+      const nextId = currentId + 1
+      
+      // Only allow creating the next sequential epoch
+      if (!confirm(`Create Epoch #${nextId}? (Next in sequence)`)) return
+
+      const tx = TokenLockerService.buildCreateNextEpochTransaction()
+      
+      const result = await signAndExecuteTransaction({
+        transaction: tx,
+        options: {
+          showEffects: true,
+          showEvents: true
+        }
+      })
+
+      if (result?.effects?.status?.status === 'success') {
+        alert(`Epoch #${nextId} created successfully!`)
+        onRefresh()
+      } else {
+        throw new Error('Transaction failed')
+      }
+    } catch (error) {
+      console.error('Failed to create epoch:', error)
+      alert('Failed to create epoch: ' + error.message)
+    }
+  }
+
   const getCurrentEpochInfo = () => dashboardData?.timing?.current || null
   const getProtocolInfo = () => dashboardData?.timing?.protocol || null
 
@@ -175,6 +213,33 @@ export default function EpochHistory({
           </div>
         </div>
       )}
+
+      {/* Quick Actions Bar */}
+      {protocolInfo?.initialized && (() => {
+        const currentId = dashboardData?.timing?.current?.id || 0
+        const nextEpochExists = allEpochs.some(e => e.epochId === currentId + 1)
+        
+        return !nextEpochExists && (
+          <div className="bg-slate-800/30 backdrop-blur-xl border border-slate-700/30 rounded-xl p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-white font-semibold flex items-center">
+                  <ZapIcon className="w-4 h-4 mr-2 text-yellow-400" />
+                  Next Epoch Needs Creation
+                </h3>
+                <p className="text-slate-400 text-sm">Epoch #{currentId + 1} hasn't been created yet</p>
+              </div>
+              <button
+                onClick={handleCreateNextEpoch}
+                className="flex items-center space-x-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 px-4 py-2 rounded-lg transition-all"
+              >
+                <Play className="w-4 h-4" />
+                <span>Create Epoch #{currentId + 1}</span>
+              </button>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Current Epoch Status */}
       {currentEpoch && (
@@ -364,6 +429,27 @@ export default function EpochHistory({
                     )}
 
                     <div className="space-y-2">
+                      {/* Add Create Epoch button for pending epochs */}
+                      {epoch.status === 'pending' && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation() // Prevent card expansion
+                            handleCreateNextEpoch()
+                          }}
+                          className="w-full mt-3 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 text-blue-400 px-3 py-2 rounded-lg transition-all flex items-center justify-center space-x-2 text-sm font-medium"
+                        >
+                          <Play className="w-4 h-4" />
+                          <span>Create Epoch #{epoch.epochId}</span>
+                        </button>
+                      )}
+
+                      <div className="flex items-center justify-center mt-3 pt-3 border-t border-slate-600/30">
+                        {expandedEpoch === epoch.epochId ? (
+                          <ChevronUp className="w-4 h-4 text-slate-400" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4 text-slate-400" />
+                        )}
+                      </div>
                       <div className="flex justify-between">
                         <span className="text-slate-400 text-sm">Total Revenue:</span>
                         <div className="flex items-center space-x-2">
