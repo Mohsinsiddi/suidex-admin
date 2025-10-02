@@ -542,7 +542,7 @@ function ControlsTab({
         }
       })
 
-      if (result?.effects?.status?.status === 'success') {
+      if (result?.digest) {
         alert(`${action} successful!`)
         onSuccess?.()
         onRefresh()

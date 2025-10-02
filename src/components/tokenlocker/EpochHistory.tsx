@@ -156,7 +156,7 @@ export default function EpochHistory({
         }
       })
 
-      if (result?.effects?.status?.status === 'success') {
+     if (result?.digest) {
         alert(`Epoch #${nextId} created successfully!`)
         onRefresh()
       } else {
