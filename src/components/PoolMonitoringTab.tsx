@@ -103,7 +103,16 @@ export default function PoolMonitoringTab() {
           type: 'PoolConfigUpdated',
           eventName: 'Pool Updated',
           poolType: poolTypeString,
-          poolName: `Pool ${poolTypeString.split('::').pop()}`, // Extract token name
+         poolName: (() => {
+            const match = poolTypeString.match(/<(.+)>/);
+            if (match) {
+              // LP pair - extract both tokens
+              const tokens = match[1].split(',').map(t => t.trim().split('::').pop());
+              return `Pool ${tokens.join('-')}`;
+            }
+            // Single token
+            return `Pool ${poolTypeString.split('::').pop()}`;
+          })(),
           data: {
             oldAllocationPoints: event.oldAllocationPoints,
             newAllocationPoints: event.newAllocationPoints,
