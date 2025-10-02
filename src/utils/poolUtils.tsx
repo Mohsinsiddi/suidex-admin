@@ -205,7 +205,7 @@ export const buildUpdatePoolTransaction = (pool: Pool, newParams: any) => {
       tx.pure.u256(newParams.depositFee),
       tx.pure.u256(newParams.withdrawalFee),
       tx.pure.bool(newParams.isActive),
-      tx.object(CONSTANTS.ADMIN_CAP_ID),
+      tx.object(CONSTANTS.FARM_ADMIN_CAP_ID),
       tx.object(CONSTANTS.GLOBAL_EMISSION_CONTROLLER_ID),
       tx.object(CONSTANTS.CLOCK_ID)
     ],
