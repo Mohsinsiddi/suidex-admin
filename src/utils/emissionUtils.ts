@@ -57,7 +57,7 @@ export interface EmissionPhaseInfo {
 
 // Constants from the smart contract
 const EMISSION_CONSTANTS = {
-  SECONDS_PER_WEEK: 7 * 600 , // 7 * 24 * 60 * 60, for testing 6 * 600
+  SECONDS_PER_WEEK: 7 * 24 * 60 * 60 , // 7 * 24 * 60 * 60, for testing 6 * 600
   BASIS_POINTS: 10000,
   BOOTSTRAP_PHASE_EMISSION_RATE: 6600000, // 6.6 Victory/sec
   POST_BOOTSTRAP_START_RATE: 5470000, // 5.47 Victory/sec

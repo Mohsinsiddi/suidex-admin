@@ -44,7 +44,7 @@ export interface WeeklyEmissionData {
 
 // Emission constants matching the smart contract
 const TOKENOMICS_CONSTANTS = {
-  SECONDS_PER_WEEK: 7 * 600, // 7 * 24 * 60 * 60, for testing 7 * 600
+  SECONDS_PER_WEEK: 7 * 24 * 60 * 60 , // 7 * 24 * 60 * 60, for testing 7 * 600
   VICTORY_DECIMALS: 6, // Victory token has 6 decimals
   TOTAL_WEEKS: 156,
   
