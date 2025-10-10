@@ -1,4 +1,4 @@
-// components/tokenlocker/EpochHistory.tsx - ENHANCED VERSION
+// components/tokenlocker/EpochHistory.tsx - COMPLETE VERSION WITH FUND FEATURE
 import React, { useState, useMemo } from 'react'
 import { 
   Calendar, BarChart3, Hash, ExternalLink, ChevronDown, ChevronUp, 
@@ -30,6 +30,11 @@ export default function EpochHistory({
   const [searchTerm, setSearchTerm] = useState('')
   const [currentSlide, setCurrentSlide] = useState(0)
   const [itemsPerPage] = useState(6)
+  
+  // 🆕 NEW: Fund modal states
+  const [fundingEpochId, setFundingEpochId] = useState<number | null>(null)
+  const [fundAmount, setFundAmount] = useState('')
+  const [isFunding, setIsFunding] = useState(false)
 
   // Get epochs from dashboard data
   const allEpochs = useMemo<EpochInfo[]>(() => {
@@ -143,7 +148,6 @@ export default function EpochHistory({
       const currentId = dashboardData?.timing?.current?.id || 0
       const nextId = currentId + 1
       
-      // Only allow creating the next sequential epoch
       if (!confirm(`Create Epoch #${nextId}? (Next in sequence)`)) return
 
       const tx = TokenLockerService.buildCreateNextEpochTransaction()
@@ -156,7 +160,7 @@ export default function EpochHistory({
         }
       })
 
-     if (result?.digest) {
+      if (result?.digest) {
         alert(`Epoch #${nextId} created successfully!`)
         onRefresh()
       } else {
@@ -164,7 +168,89 @@ export default function EpochHistory({
       }
     } catch (error) {
       console.error('Failed to create epoch:', error)
-      alert('Failed to create epoch: ' + error.message)
+      alert('Failed to create epoch: ' + (error as Error).message)
+    }
+  }
+
+  // 🆕 NEW: Handle fund epoch
+  const handleFundEpoch = async (epochId: number) => {
+    if (!account) {
+      alert('Please connect wallet')
+      return
+    }
+
+    const amount = parseFloat(fundAmount)
+    if (isNaN(amount) || amount <= 0) {
+      alert('Please enter a valid amount')
+      return
+    }
+
+    try {
+      setIsFunding(true)
+      
+      const amountInMist = Math.floor(amount * 1_000_000_000)
+      
+      const epoch = allEpochs.find(e => e.epochId === epochId)
+      const confirmMessage = 
+        `Fund Epoch #${epochId} with ${amount} TEST_SUI?\n\n` +
+        `This will ${epoch?.fundingCount ? 'ADD to existing' : 'set initial'} revenue.\n` +
+        `Current revenue: ${epoch?.totalRevenue || '0 TEST_SUI'}`
+      
+      if (!confirm(confirmMessage)) {
+        setIsFunding(false)
+        return
+      }
+
+      console.log('Building fund transaction for epoch', epochId)
+      
+      const tx = await TokenLockerService.buildFundSpecificEpochTransaction(
+        account.address,
+        epochId,
+        amountInMist.toString()
+      )
+      
+      console.log('Executing transaction...')
+      const result = await signAndExecuteTransaction({
+        transaction: tx,
+        options: {
+          showEffects: true,
+          showEvents: true
+        }
+      })
+
+      if (result?.digest) {
+        console.log('Transaction successful:', result.digest)
+        alert(
+          `✅ Epoch #${epochId} funded successfully!\n\n` +
+          `Amount: ${amount} TEST_SUI\n` +
+          `TX: ${result.digest.slice(0, 8)}...${result.digest.slice(-6)}`
+        )
+        setFundingEpochId(null)
+        setFundAmount('')
+        onRefresh()
+      } else {
+        throw new Error('Transaction failed - no digest returned')
+      }
+    } catch (error: any) {
+      console.error('Failed to fund epoch:', error)
+      
+      let errorMessage = 'Failed to fund epoch'
+      
+      if (error.message?.includes('No TEST_SUI coins found')) {
+        errorMessage = 
+          '❌ No TEST_SUI coins found!\n\n' +
+          'Please mint TEST_SUI first using the mint button in the dashboard.'
+      } else if (error.message?.includes('Insufficient TEST_SUI balance')) {
+        errorMessage = 
+          '❌ Insufficient TEST_SUI balance!\n\n' +
+          error.message
+      } else {
+        errorMessage = `❌ ${error.message || 'Unknown error occurred'}`
+      }
+      
+      alert(errorMessage)
+    } finally {
+      setIsFunding(false)
     }
   }
 
@@ -173,6 +259,146 @@ export default function EpochHistory({
 
   const currentEpoch = getCurrentEpochInfo()
   const protocolInfo = getProtocolInfo()
+
+  // 🆕 NEW: Fund Modal Component
+  const FundModal = ({ epochId }: { epochId: number }) => {
+    const epoch = allEpochs.find(e => e.epochId === epochId)
+    if (!epoch) return null
+
+    return (
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="bg-slate-800 border border-slate-700 rounded-xl max-w-md w-full p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-white flex items-center">
+              <DollarSign className="w-5 h-5 mr-2 text-green-400" />
+              Fund Epoch #{epochId}
+            </h3>
+            <button
+              onClick={() => {
+                setFundingEpochId(null)
+                setFundAmount('')
+              }}
+              className="text-slate-400 hover:text-white"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3 mb-4">
+            <div className="flex items-start space-x-2">
+              <AlertTriangle className="w-4 h-4 text-yellow-400 mt-0.5 flex-shrink-0" />
+              <div className="text-sm text-yellow-300">
+                <span className="font-semibold">Testing Mode:</span> Using TEST_SUI tokens.
+                Make sure you have TEST_SUI minted first.
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-slate-700/30 rounded-lg p-4 mb-4">
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <div className="text-slate-400">Status</div>
+                <div className="text-white font-medium">{epoch.status}</div>
+              </div>
+              <div>
+                <div className="text-slate-400">Week</div>
+                <div className="text-white font-medium">#{epoch.weekNumber}</div>
+              </div>
+              <div>
+                <div className="text-slate-400">Current Revenue</div>
+                <div className="text-green-400 font-semibold">{epoch.totalRevenue}</div>
+              </div>
+              <div>
+                <div className="text-slate-400">Times Funded</div>
+                <div className="text-blue-400 font-semibold">
+                  {epoch.fundingCount || 0}x
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {epoch.fundingCount && epoch.fundingCount > 0 && (
+            <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 mb-4">
+              <div className="flex items-start space-x-2">
+                <Layers className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
+                <div className="text-sm text-blue-300">
+                  This epoch was already funded <span className="font-semibold">{epoch.fundingCount} time{epoch.fundingCount > 1 ? 's' : ''}</span>.
+                  Your amount will be <span className="font-semibold">added cumulatively</span> to existing revenue.
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-slate-300 mb-2">
+              Amount (TEST_SUI)
+            </label>
+            <input
+              type="number"
+              step="0.1"
+              min="0"
+              value={fundAmount}
+              onChange={(e) => setFundAmount(e.target.value)}
+              placeholder="Enter TEST_SUI amount (e.g., 100)"
+              className="w-full bg-slate-700/50 border border-slate-600/50 rounded-lg px-4 py-3 text-white placeholder-slate-400 focus:border-green-500 focus:outline-none"
+              disabled={isFunding}
+            />
+            <div className="flex justify-between mt-2">
+              <span className="text-xs text-slate-400">Minimum: 0.1 TEST_SUI</span>
+              {fundAmount && (
+                <span className="text-xs text-green-400">
+                  = {(parseFloat(fundAmount) * 1_000_000_000).toLocaleString()} MIST
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-4 gap-2 mb-6">
+            {[10, 50, 100, 500].map((amount) => (
+              <button
+                key={amount}
+                onClick={() => setFundAmount(amount.toString())}
+                className="bg-slate-700/50 hover:bg-slate-700 text-white px-3 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"
+                disabled={isFunding}
+              >
+                {amount}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex space-x-3">
+            <button
+              onClick={() => {
+                setFundingEpochId(null)
+                setFundAmount('')
+              }}
+              className="flex-1 bg-slate-700 hover:bg-slate-600 text-white px-4 py-3 rounded-lg transition-colors disabled:opacity-50"
+              disabled={isFunding}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => handleFundEpoch(epochId)}
+              disabled={isFunding || !fundAmount || parseFloat(fundAmount) <= 0}
+              className="flex-1 bg-green-500 hover:bg-green-600 disabled:bg-slate-700 disabled:text-slate-500 text-white px-4 py-3 rounded-lg transition-colors flex items-center justify-center space-x-2"
+            >
+              {isFunding ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                  <span>Funding...</span>
+                </>
+              ) : (
+                <>
+                  <DollarSign className="w-4 h-4" />
+                  <span>Fund with TEST_SUI</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -429,11 +655,11 @@ export default function EpochHistory({
                     )}
 
                     <div className="space-y-2">
-                      {/* Add Create Epoch button for pending epochs */}
+                      {/* Create Epoch button for pending epochs */}
                       {epoch.status === 'pending' && (
                         <button
                           onClick={(e) => {
-                            e.stopPropagation() // Prevent card expansion
+                            e.stopPropagation()
                             handleCreateNextEpoch()
                           }}
                           className="w-full mt-3 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 text-blue-400 px-3 py-2 rounded-lg transition-all flex items-center justify-center space-x-2 text-sm font-medium"
@@ -443,13 +669,25 @@ export default function EpochHistory({
                         </button>
                       )}
 
-                      <div className="flex items-center justify-center mt-3 pt-3 border-t border-slate-600/30">
-                        {expandedEpoch === epoch.epochId ? (
-                          <ChevronUp className="w-4 h-4 text-slate-400" />
-                        ) : (
-                          <ChevronDown className="w-4 h-4 text-slate-400" />
-                        )}
-                      </div>
+                      {/* 🆕 NEW: Fund button for created/claimable epochs */}
+                      {(epoch.status === 'created') && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setFundingEpochId(epoch.epochId)
+                          }}
+                          className="w-full mt-3 bg-green-500/20 hover:bg-green-500/30 border border-green-500/30 text-green-400 px-3 py-2 rounded-lg transition-all flex items-center justify-center space-x-2 text-sm font-medium"
+                        >
+                          <DollarSign className="w-4 h-4" />
+                          <span>
+                            {epoch.fundingCount && epoch.fundingCount > 0 
+                              ? `Add TEST_SUI (${epoch.fundingCount}x funded)`
+                              : 'Fund with TEST_SUI'
+                            }
+                          </span>
+                        </button>
+                      )}
+
                       <div className="flex justify-between">
                         <span className="text-slate-400 text-sm">Total Revenue:</span>
                         <div className="flex items-center space-x-2">
@@ -628,6 +866,9 @@ export default function EpochHistory({
           </div>
         )}
       </div>
+
+      {/* 🆕 NEW: Fund Modal */}
+      {fundingEpochId && <FundModal epochId={fundingEpochId} />}
     </div>
   )
 }
