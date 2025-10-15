@@ -156,8 +156,7 @@ export class EmissionService {
   // Fetch emission configuration
   static async fetchEmissionConfig(): Promise<EmissionConfig> {
     try {
-      const eventResult = await this.fetchActualEmissionStartTime()
-      
+      // Read from contract (source of truth)
       const tx = new Transaction()
       tx.moveCall({
         target: `${CONSTANTS.PACKAGE_ID}::global_emission_controller::get_config_info`,
@@ -174,43 +173,32 @@ export class EmissionService {
 
       const returnValues = result.results?.[0]?.returnValues
       if (returnValues && returnValues.length >= 2) {
-        try {
-          const timestampBytes = returnValues[0][0]
-          const pausedByte = returnValues[1][0]
-          
-          if (typeof timestampBytes === 'string') {
-            contractTimestamp = parseInt(timestampBytes)
-          } else if (Array.isArray(timestampBytes)) {
-            contractTimestamp = timestampBytes.reduce((acc, byte, index) => {
-              return acc + (byte << (8 * index))
-            }, 0)
-          } else {
-            contractTimestamp = Number(timestampBytes)
-          }
-          
-          paused = pausedByte === 1 || pausedByte === true
-          
-        } catch (parseError) {
-          contractTimestamp = 0
+        const timestampBytes = returnValues[0][0]
+        const pausedByte = returnValues[1][0]
+        
+        // Parse timestamp from bytes
+        if (Array.isArray(timestampBytes)) {
+          contractTimestamp = timestampBytes.reduce((acc, byte, index) => {
+            return acc + (byte << (8 * index))
+          }, 0)
+        } else {
+          contractTimestamp = Number(timestampBytes)
         }
+        
+        // Parse paused state
+        paused = Array.isArray(pausedByte) 
+          ? pausedByte[0] === 1 
+          : pausedByte === 1 || pausedByte === true
       }
 
-      let finalTimestamp = 0
-      
-      if (eventResult.timestamp > 0) {
-        finalTimestamp = eventResult.timestamp
-      } else if (contractTimestamp > 0) {
-        finalTimestamp = contractTimestamp
-      }
-
-      const numericTimestamp = typeof finalTimestamp === 'string' ? parseInt(finalTimestamp) : finalTimestamp
-
+      // ✅ FIX: Trust contract state, ignore events after reset
       return {
-        emissionStartTimestamp: numericTimestamp,
+        emissionStartTimestamp: contractTimestamp,  // Use contract directly
         paused
       }
 
     } catch (error) {
+      console.error('Error fetching emission config:', error)
       return {
         emissionStartTimestamp: 0,
         paused: false
@@ -236,11 +224,19 @@ export class EmissionService {
       })
 
       const returnValues = result.results?.[0]?.returnValues
+      console.log('System status raw return values:', returnValues)
+      
       if (returnValues && returnValues.length >= 4) {
-        const paused = returnValues[0][0] === 1
-        const currentWeek = parseInt(returnValues[1][0])
-        const weeksRemaining = parseInt(returnValues[2][0])
-        const isActive = returnValues[3][0] === 1
+        // ✅ FIX: Access [0][0][0] for bool values wrapped in arrays
+        const paused = returnValues[0][0][0] === 1
+        console.log('System paused state:', paused, 'Raw:', returnValues[0][0])
+        
+        // u64 values are byte arrays, so we need to parse them differently
+        const currentWeek = this.parseU64FromBytes(returnValues[1][0])
+        const weeksRemaining = this.parseU64FromBytes(returnValues[2][0])
+        
+        // ✅ FIX: Access [0][0][0] for bool
+        const isActive = returnValues[3][0][0] === 1
         
         return {
           paused,
@@ -252,6 +248,7 @@ export class EmissionService {
 
       throw new Error('Invalid response format')
     } catch (error) {
+      console.error('Error fetching system status:', error)
       return {
         paused: false,
         currentWeek: 0,
@@ -259,6 +256,14 @@ export class EmissionService {
         isActive: false
       }
     }
+  }
+
+  // Helper to parse u64 from byte array
+  private static parseU64FromBytes(bytes: number[]): number {
+    if (!bytes || bytes.length === 0) return 0
+    return bytes.reduce((acc, byte, index) => {
+      return acc + (byte << (8 * index))
+    }, 0)
   }
 
   // Get comprehensive emission overview with tokenomics
