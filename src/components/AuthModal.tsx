@@ -54,7 +54,7 @@ interface AuthModalProps {
   onAuthenticated: () => void
 }
 
-const ADMIN_ADDRESS = '0x9b15baa31a2d308bd09f9258f0a9db09da3d4e8e113cf1888efa919d9778fa7c'
+const ADMIN_ADDRESS = '0x980a970a8bb90b5a9c63e550c4ef06161b0376c297fb3e35a9b710004cc1aac9'
 
 export function AuthModal({ isOpen, onClose, onAuthenticated }: AuthModalProps) {
   const { account } = useWallet()
