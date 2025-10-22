@@ -23,11 +23,10 @@ export const CONSTANTS = {
         METADATA_ID: "0x02f5ab9605d11d28e7fa240b1756c4fbcd3eb8e11dc82fe2525f4bfd1d055ff5"
     },
     
-    TEST_SUI: {
-        TYPE: "0xcc3cbaf7a6c29e4acf36689cf2d8bac965b798464e49b7d9e51990e892859d32::test_sui::TEST_SUI",
-        TREASURY_CAP_WRAPPER_ID: "0xc96c37b4f99f4e502b2a73b3e5054f02483ea75fce353c123394090c99c703e0",
-        MINTER_CAP_ID: "0x1c7dbc0e2c6230439f7b41e2c3eaa95c16f904b15afd60dfc4bebce37d574b52",
-        METADATA_ID: "0x713134e2f91c61fb1dd81e4bbfb37a0600a6e40984e6b07811a946eda262cacc"
+    // Native SUI configuration for mainnet
+    SUI: {
+        TYPE: "0x2::sui::SUI", // Native SUI type
+        DECIMALS: 9
     },
     
     // Note: Vault IDs need to be created in separate transactions
@@ -48,15 +47,14 @@ export const CONSTANTS = {
         FARM: "farm",
         VICTORY_TOKEN: "victory_token",
         TOKEN_LOCKER: "victory_token_locker",
-        GLOBAL_EMISSION_CONTROLLER: "global_emission_controller",
-        TEST_SUI: "test_sui"
+        GLOBAL_EMISSION_CONTROLLER: "global_emission_controller"
     },
     
     CLOCK_ID: "0x6",
     getPairID: (token0: string, token1: string) => `${token0}_${token1}_pair`,
     
     // Network configuration
-    NETWORK: 'testnet' as const,
-    RPC_URL: 'https://fullnode.testnet.sui.io:443',
+    NETWORK: 'mainnet' as const,
+    RPC_URL: 'https://fullnode.mainnet.sui.io:443',
     ADMIN: '0x9b15baa31a2d308bd09f9258f0a9db09da3d4e8e113cf1888efa919d9778fa7c'
 }

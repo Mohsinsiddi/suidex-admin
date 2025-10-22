@@ -192,9 +192,9 @@ export default function EpochHistory({
       
       const epoch = allEpochs.find(e => e.epochId === epochId)
       const confirmMessage = 
-        `Fund Epoch #${epochId} with ${amount} TEST_SUI?\n\n` +
+        `Fund Epoch #${epochId} with ${amount} SUI?\n\n` +
         `This will ${epoch?.fundingCount ? 'ADD to existing' : 'set initial'} revenue.\n` +
-        `Current revenue: ${epoch?.totalRevenue || '0 TEST_SUI'}`
+        `Current revenue: ${epoch?.totalRevenue || '0 SUI'}`
       
       if (!confirm(confirmMessage)) {
         setIsFunding(false)
@@ -203,8 +203,7 @@ export default function EpochHistory({
 
       console.log('Building fund transaction for epoch', epochId)
       
-      const tx = await TokenLockerService.buildFundSpecificEpochTransaction(
-        account.address,
+      const tx = TokenLockerService.buildFundSpecificEpochTransaction(
         epochId,
         amountInMist.toString()
       )
@@ -222,7 +221,7 @@ export default function EpochHistory({
         console.log('Transaction successful:', result.digest)
         alert(
           `✅ Epoch #${epochId} funded successfully!\n\n` +
-          `Amount: ${amount} TEST_SUI\n` +
+          `Amount: ${amount} SUI\n` +
           `TX: ${result.digest.slice(0, 8)}...${result.digest.slice(-6)}`
         )
         setFundingEpochId(null)
@@ -236,13 +235,13 @@ export default function EpochHistory({
       
       let errorMessage = 'Failed to fund epoch'
       
-      if (error.message?.includes('No TEST_SUI coins found')) {
+      if (error.message?.includes('No SUI coins found')) {
         errorMessage = 
-          '❌ No TEST_SUI coins found!\n\n' +
-          'Please mint TEST_SUI first using the mint button in the dashboard.'
-      } else if (error.message?.includes('Insufficient TEST_SUI balance')) {
+          '❌ No SUI coins found!\n\n' +
+          'Please mint SUI first using the mint button in the dashboard.'
+      } else if (error.message?.includes('Insufficient SUI balance')) {
         errorMessage = 
-          '❌ Insufficient TEST_SUI balance!\n\n' +
+          '❌ Insufficient SUI balance!\n\n' +
           error.message
       } else {
         errorMessage = `❌ ${error.message || 'Unknown error occurred'}`
@@ -288,8 +287,8 @@ export default function EpochHistory({
             <div className="flex items-start space-x-2">
               <AlertTriangle className="w-4 h-4 text-yellow-400 mt-0.5 flex-shrink-0" />
               <div className="text-sm text-yellow-300">
-                <span className="font-semibold">Testing Mode:</span> Using TEST_SUI tokens.
-                Make sure you have TEST_SUI minted first.
+                <span className="font-semibold">Testing Mode:</span> Using SUI tokens.
+                Make sure you have SUI minted first.
               </div>
             </div>
           </div>
@@ -331,7 +330,7 @@ export default function EpochHistory({
 
           <div className="mb-4">
             <label className="block text-sm font-medium text-slate-300 mb-2">
-              Amount (TEST_SUI)
+              Amount (SUI)
             </label>
             <input
               type="number"
@@ -339,12 +338,12 @@ export default function EpochHistory({
               min="0"
               value={fundAmount}
               onChange={(e) => setFundAmount(e.target.value)}
-              placeholder="Enter TEST_SUI amount (e.g., 100)"
+              placeholder="Enter SUI amount (e.g., 100)"
               className="w-full bg-slate-700/50 border border-slate-600/50 rounded-lg px-4 py-3 text-white placeholder-slate-400 focus:border-green-500 focus:outline-none"
               disabled={isFunding}
             />
             <div className="flex justify-between mt-2">
-              <span className="text-xs text-slate-400">Minimum: 0.1 TEST_SUI</span>
+              <span className="text-xs text-slate-400">Minimum: 0.1 SUI</span>
               {fundAmount && (
                 <span className="text-xs text-green-400">
                   = {(parseFloat(fundAmount) * 1_000_000_000).toLocaleString()} MIST
@@ -390,7 +389,7 @@ export default function EpochHistory({
               ) : (
                 <>
                   <DollarSign className="w-4 h-4" />
-                  <span>Fund with TEST_SUI</span>
+                  <span>Fund with SUI</span>
                 </>
               )}
             </button>
@@ -681,8 +680,8 @@ export default function EpochHistory({
                           <DollarSign className="w-4 h-4" />
                           <span>
                             {epoch.fundingCount && epoch.fundingCount > 0 
-                              ? `Add TEST_SUI (${epoch.fundingCount}x funded)`
-                              : 'Fund with TEST_SUI'
+                              ? `Add SUI (${epoch.fundingCount}x funded)`
+                              : 'Fund with SUI'
                             }
                           </span>
                         </button>

@@ -1242,14 +1242,10 @@ export class TokenLockerService {
     return tx
   }
 
-  // Add weekly SUI revenue (UNCHANGED)
-  static async buildAddWeeklySUIRevenueTransaction(
-    adminAddress: string,
-    amount: string
-  ): Promise<Transaction> {
+  // Add weekly SUI revenue (MAINNET - Using tx.gas)
+  static buildAddWeeklySUIRevenueTransaction(amount: string): Transaction {
     console.log('=== Building Add Weekly SUI Revenue Transaction ===')
-    console.log('Admin address:', adminAddress)
-    console.log('Amount requested:', amount)
+    console.log('Amount requested:', amount, 'MIST')
     
     const tx = new Transaction()
     
@@ -1257,69 +1253,8 @@ export class TokenLockerService {
       throw new Error('Invalid amount')
     }
     
-    // Check for existing TEST_SUI coins
-    console.log('Checking for TEST_SUI coins...')
-    const coins = await suiClient.getCoins({
-      owner: adminAddress,
-      coinType: CONSTANTS.TEST_SUI.TYPE
-    })
-    
-    console.log('Found TEST_SUI coins:', coins.data?.length || 0)
-    
-    if (!coins.data || coins.data.length === 0) {
-      // No TEST_SUI coins, need to mint first in a SEPARATE transaction
-      throw new Error(
-        'No TEST_SUI coins found. Please mint TEST_SUI first:\n' +
-        '1. Call buildMintTestSuiTransaction() to mint TEST_SUI\n' +
-        '2. Then call this function again to add revenue'
-      )
-    }
-    
-    // Calculate total balance
-    const totalBalance = coins.data.reduce((sum, coin) => 
-      sum + BigInt(coin.balance), BigInt(0)
-    )
-    console.log('Total TEST_SUI balance:', totalBalance.toString(), 'MIST')
-    console.log('Required amount:', amount, 'MIST')
-    
-    if (totalBalance < BigInt(amount)) {
-      throw new Error(
-        `Insufficient TEST_SUI balance. Have: ${totalBalance}, Need: ${amount}`
-      )
-    }
-    
-    // Sort coins by balance (largest first for efficiency)
-    const sortedCoins = [...coins.data].sort((a, b) => {
-      const balanceA = BigInt(a.balance)
-      const balanceB = BigInt(b.balance)
-      if (balanceA > balanceB) return -1
-      if (balanceA < balanceB) return 1
-      return 0
-    })
-    
-    console.log('Coin details:')
-    sortedCoins.forEach((coin, i) => {
-      console.log(`  Coin ${i}: ${coin.coinObjectId}, Balance: ${coin.balance}`)
-    })
-    
-    // Use the first coin as primary
-    const primaryCoinId = sortedCoins[0].coinObjectId
-    const primaryCoin = tx.object(primaryCoinId)
-    console.log('Primary coin:', primaryCoinId)
-    
-    // Merge other coins if there are multiple
-    if (sortedCoins.length > 1) {
-      console.log('Merging', sortedCoins.length - 1, 'additional coins...')
-      const otherCoins = sortedCoins.slice(1).map(coin => {
-        console.log('  Merging coin:', coin.coinObjectId)
-        return tx.object(coin.coinObjectId)
-      })
-      tx.mergeCoins(primaryCoin, otherCoins)
-    }
-    
-    // Split the exact amount needed
-    console.log('Splitting amount:', amount, 'from merged coin')
-    const [testSuiCoin] = tx.splitCoins(primaryCoin, [tx.pure.u64(amount)])
+    // Split the exact amount needed from the gas coin
+    const [suiCoin] = tx.splitCoins(tx.gas, [tx.pure.u64(amount)])
     
     // Add revenue to the locker
     console.log('Adding revenue to locker...')
@@ -1328,7 +1263,7 @@ export class TokenLockerService {
       arguments: [
         tx.object(CONSTANTS.TOKEN_LOCKER_ID),
         tx.object(CONSTANTS.VAULT_IDS.SUI_REWARD_VAULT_ID),
-        testSuiCoin,
+        suiCoin,
         tx.object(CONSTANTS.TOKEN_LOCKER_ADMIN_CAP_ID),
         tx.object(CONSTANTS.CLOCK_ID)
       ]
@@ -1338,37 +1273,14 @@ export class TokenLockerService {
     return tx
   }
 
-  // Helper function to mint TEST_SUI separately (call this first if needed)
-  static buildMintTestSuiTransaction(amount: string): Transaction {
-    console.log('=== Building Mint TEST_SUI Transaction ===')
-    console.log('Amount to mint:', amount)
-    
-    const tx = new Transaction()
-    
-    tx.moveCall({
-      target: `${CONSTANTS.PACKAGE_ID}::test_sui::mint`,
-      arguments: [
-        tx.object(CONSTANTS.TEST_SUI.TREASURY_CAP_WRAPPER_ID),
-        tx.pure.u64(amount),
-        tx.pure.address(CONSTANTS.ADMIN),
-        tx.object(CONSTANTS.TEST_SUI.MINTER_CAP_ID)
-      ]
-    })
-    
-    console.log('=== Mint Transaction Built ===')
-    return tx
-  }
-
-  // Fund specific epoch (including past epochs) - TEST_SUI VERSION
-  static async buildFundSpecificEpochTransaction(
-    adminAddress: string,
+  // Fund specific epoch - MAINNET using tx.gas
+  static buildFundSpecificEpochTransaction(
     epochId: number,
     amount: string
-  ): Promise<Transaction> {
+  ): Transaction {
     console.log('=== Building Fund Specific Epoch Transaction ===')
-    console.log('Admin address:', adminAddress)
     console.log('Epoch ID:', epochId)
-    console.log('Amount requested:', amount)
+    console.log('Amount requested:', amount, 'MIST')
     
     const tx = new Transaction()
     
@@ -1376,78 +1288,18 @@ export class TokenLockerService {
       throw new Error('Invalid amount')
     }
     
-    // Check for existing TEST_SUI coins
-    console.log('Checking for TEST_SUI coins...')
-    const coins = await suiClient.getCoins({
-      owner: adminAddress,
-      coinType: CONSTANTS.TEST_SUI.TYPE
-    })
-    
-    console.log('Found TEST_SUI coins:', coins.data?.length || 0)
-    
-    if (!coins.data || coins.data.length === 0) {
-      throw new Error(
-        'No TEST_SUI coins found. Please mint TEST_SUI first:\n' +
-        '1. Call buildMintTestSuiTransaction() to mint TEST_SUI\n' +
-        '2. Then call this function again to fund epoch'
-      )
-    }
-    
-    // Calculate total balance
-    const totalBalance = coins.data.reduce((sum, coin) => 
-      sum + BigInt(coin.balance), BigInt(0)
-    )
-    console.log('Total TEST_SUI balance:', totalBalance.toString(), 'MIST')
-    console.log('Required amount:', amount, 'MIST')
-    
-    if (totalBalance < BigInt(amount)) {
-      throw new Error(
-        `Insufficient TEST_SUI balance. Have: ${totalBalance}, Need: ${amount}`
-      )
-    }
-    
-    // Sort coins by balance (largest first for efficiency)
-    const sortedCoins = [...coins.data].sort((a, b) => {
-      const balanceA = BigInt(a.balance)
-      const balanceB = BigInt(b.balance)
-      if (balanceA > balanceB) return -1
-      if (balanceA < balanceB) return 1
-      return 0
-    })
-    
-    console.log('Coin details:')
-    sortedCoins.forEach((coin, i) => {
-      console.log(`  Coin ${i}: ${coin.coinObjectId}, Balance: ${coin.balance}`)
-    })
-    
-    // Use the first coin as primary
-    const primaryCoinId = sortedCoins[0].coinObjectId
-    const primaryCoin = tx.object(primaryCoinId)
-    console.log('Primary coin:', primaryCoinId)
-    
-    // Merge other coins if there are multiple
-    if (sortedCoins.length > 1) {
-      console.log('Merging', sortedCoins.length - 1, 'additional coins...')
-      const otherCoins = sortedCoins.slice(1).map(coin => {
-        console.log('  Merging coin:', coin.coinObjectId)
-        return tx.object(coin.coinObjectId)
-      })
-      tx.mergeCoins(primaryCoin, otherCoins)
-    }
-    
-    // Split the exact amount needed
-    console.log('Splitting amount:', amount, 'from merged coin')
-    const [testSuiCoin] = tx.splitCoins(primaryCoin, [tx.pure.u64(amount)])
+    // Split the exact amount needed from the gas coin
+    const [suiCoin] = tx.splitCoins(tx.gas, [tx.pure.u64(amount)])
     
     // Fund specific epoch
-    console.log('Funding epoch', epochId, 'with', amount, 'TEST_SUI...')
+    console.log('Funding epoch', epochId, 'with', amount, 'SUI...')
     tx.moveCall({
       target: `${CONSTANTS.PACKAGE_ID}::victory_token_locker::admin_fund_specific_epoch`,
       arguments: [
         tx.object(CONSTANTS.TOKEN_LOCKER_ID),
         tx.object(CONSTANTS.VAULT_IDS.SUI_REWARD_VAULT_ID),
-        testSuiCoin,
-        tx.pure.u64(epochId),  // Target epoch ID
+        suiCoin,
+        tx.pure.u64(epochId),
         tx.object(CONSTANTS.TOKEN_LOCKER_ADMIN_CAP_ID),
         tx.object(CONSTANTS.CLOCK_ID)
       ]
@@ -1457,6 +1309,7 @@ export class TokenLockerService {
     return tx
   }
 
+  
   // NEW: Create next epoch in sequence
   static buildCreateNextEpochTransaction(): Transaction {
     const tx = new Transaction()
