@@ -195,8 +195,7 @@ export default function TokenLockerTab() {
             if (!account?.address) {
               throw new Error('No admin address')
             }
-            return await TokenLockerService.buildAddWeeklySUIRevenueTransaction(
-              account.address,
+            return TokenLockerService.buildAddWeeklySUIRevenueTransaction(
               revenueAmount  // This comes from state, not currentActionData
             )
           },
