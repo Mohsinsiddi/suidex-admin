@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useWallet, ConnectButton } from '@suiet/wallet-kit'
 import { useAuth } from '../contexts/AuthContext'
+import { CONSTANTS } from '../constants'
 
 // Icons
 interface IconProps {
@@ -54,7 +55,7 @@ interface AuthModalProps {
   onAuthenticated: () => void
 }
 
-const ADMIN_ADDRESS = '0x980a970a8bb90b5a9c63e550c4ef06161b0376c297fb3e35a9b710004cc1aac9'
+const ADMIN_ADDRESS = CONSTANTS.ADMIN
 
 export function AuthModal({ isOpen, onClose, onAuthenticated }: AuthModalProps) {
   const { account } = useWallet()

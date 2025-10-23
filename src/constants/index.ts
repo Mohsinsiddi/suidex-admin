@@ -1,39 +1,47 @@
 export const CONSTANTS = {
     // Main package ID from the deployment
-    PACKAGE_ID: "0xefc1dc4d0c85becd7c4a255c00bd2caa478163aa69c16570df62e58edc51d8f4",
+    PACKAGE_ID: "0xcc3cbaf7a6c29e4acf36689cf2d8bac965b798464e49b7d9e51990e892859d32",
     
     // Core module IDs from the created objects
-    ROUTER_ID: "0x2628d18eb6a871e77f8071520e19d0f7a1dd133faa263b4a63ffd21cf1f9579b",
-    FACTORY_ID: "0xdab6c52873485e4fc5210bf9a6736e00bec80a0def5adb6480eb7693237a4a40",
-    FARM_ID: "0xf72bf1c6c1684294c5a86a817266a116485a681ccd1e98b6ab9f2e7a9dced194",
-    TOKEN_LOCKER_ID: "0xf260053b8226345008ef356b2fd357b73c161e1dce086e53f8669bdb970eb9fe",
-    GLOBAL_EMISSION_CONTROLLER_ID: "0x3f609548d22d1ef011a1a6ef37d9dda0ac6b7cf0973703c26d6717c60f5f90f3",
+    ROUTER_ID: "0xa0a360017eb33928d797802ef5655eb5c09d860fd8af50071b894beab781c492",
+    FACTORY_ID: "0x4c3159270324e5b9a58f2339fce58c306094a1ce164869e3f755db7a5c220d80",
+    FARM_ID: "0x818ea092b28c2ea0e996da445d23d26bb211d9decacb8719e69840d4d62004e5",
+    TOKEN_LOCKER_ID: "0x9c5334bc7608cf5f5741305f790482caf0c2f7a2d5603ed6d31ac486f4fe5083",
+    GLOBAL_EMISSION_CONTROLLER_ID: "0x4f89f0026ba04cefb7e5bbfbdb3f5def46db1f44abc2759ad91655ac9cddfdf6",
     
     // Admin capability IDs
-    TOKEN_LOCKER_ADMIN_CAP_ID: "0x21cd31e542fb35ac07fe3e9d0500cf9cc0a4a604d33e8362bd8e1da9a7997320",
-    GLOBAL_EMISSION_ADMIN_CAP_ID: "0x6be95f838051fca06030fa4dfdcd75301da4bfeee7e9297e659cbae0299a1a77",
-    FARM_ADMIN_CAP_ID: "0xe25e7ccba9bb007c64b236766b2c9aa58f767ad6dcc6a6e659b64895f225bea3",
-    PAIR_ADMIN_CAP_ID: "0x0aa6516db0bf302645d334377cbf569d2568ff14b1944a911d9850c82c1074ff",
-    UPGRADE_CAP_ID: "0x13727c84d1d2d3e1e44bce2ec5fdd76ab956ebff66c78c90f76a320c81757482",
+    TOKEN_LOCKER_ADMIN_CAP_ID: "0x97b1ebd827570f8f6692ed7b5140517ca89f5b8a098a284e2d12533ec567d5d0",
+    GLOBAL_EMISSION_ADMIN_CAP_ID: "0x52d917ca30866cfa07ee4590c49a1694f99667192f6c56fdfb9bf49b61f7df67",
+    FARM_ADMIN_CAP_ID: "0x19794c6ea34e3f559e2f266e3a57e8ebf1a2878ba1d57e0fe8a5b9165b47f6c8",
+    PAIR_ADMIN_CAP_ID: "0xc48364679d515c629860bb5cbb890e2bf7adc66d82ed139fe71c466629177b62",
+    UPGRADE_CAP_ID: "0xfed6f28cbb7b56413673729910bd6bc36fe1243c190240e03239c1ea5a60fc54",
     
     VICTORY_TOKEN: {
-        TYPE: "0xefc1dc4d0c85becd7c4a255c00bd2caa478163aa69c16570df62e58edc51d8f4::victory_token::VICTORY_TOKEN",
-        TREASURY_CAP_WRAPPER_ID: "0x667d9edb7c30525ed155b187232ed32d1071fcca6cf76e5f3659b93b42047c2a",
-        MINTER_CAP_ID: "0xd24c8c8b4892da3495d679e8e38698a09d09d699ce90afeb73494a3f40d2a34b",
-        METADATA_ID: "0x2f69d1aa280f95ad1ee8e2c2a6a4f4522985ce61019296661734e02344f2784b"
+        TYPE: "0xcc3cbaf7a6c29e4acf36689cf2d8bac965b798464e49b7d9e51990e892859d32::victory_token::VICTORY_TOKEN",
+        TREASURY_CAP_WRAPPER_ID: "0x8c1fb46e24b898eabcc7a1eff9baf4d36af05f9895226a0d6ce5a6660d94c0d4",
+        MINTER_CAP_ID: "0x67bc631c82e3014f63c2c9ee3de1d4a177fa337aec52923b39174da23af93896",
+        METADATA_ID: "0x02f5ab9605d11d28e7fa240b1756c4fbcd3eb8e11dc82fe2525f4bfd1d055ff5"
     },
-    
-    // Native SUI configuration for mainnet
+
     SUI: {
         TYPE: "0x2::sui::SUI", // Native SUI type
         DECIMALS: 9
     },
     
+    TEST_SUI: {
+        TYPE: "0xcc3cbaf7a6c29e4acf36689cf2d8bac965b798464e49b7d9e51990e892859d32::test_sui::TEST_SUI",
+        TREASURY_CAP_WRAPPER_ID: "0xc96c37b4f99f4e502b2a73b3e5054f02483ea75fce353c123394090c99c703e0",
+        MINTER_CAP_ID: "0x1c7dbc0e2c6230439f7b41e2c3eaa95c16f904b15afd60dfc4bebce37d574b52",
+        METADATA_ID: "0x713134e2f91c61fb1dd81e4bbfb37a0600a6e40984e6b07811a946eda262cacc"
+    },
+    
+    // Note: Vault IDs need to be created in separate transactions
+    // These placeholders should be replaced after vault creation
     VAULT_IDS: {
-        FARM_REWARD_VAULT_ID: "0x55810cb8e142ea85ad6c412c03ecf50434d41b14e9d646d058896271730ebe37",
-        LOCKER_REWARD_VAULT_ID: "0x15138b08d446fded59f83b98cf51c62995ceb9cd2314796dbbfcd34c1bb2dbc7",
-        LOCKER_LOCKED_VAULT_ID: "0xed27a3b552eb8aebc0a5ba66e8eb2c0e643ffb93640c973a6f4475f7a91cbefc",
-        SUI_REWARD_VAULT_ID: "0x290e1c677fa541b9adb6ab4395531dbbbd02f6ff0a89ab460bc208fd689e11b6"
+        FARM_REWARD_VAULT_ID: "0x9b8bf27fb4feafdb88439c30b3fd14c40441c988950817bc187f9e71058f5fff",
+        LOCKER_REWARD_VAULT_ID: "0xd827cb7851758cc0706ef7622b27a4305ec45f575079bf70f4c95ff798e538d5",
+        LOCKER_LOCKED_VAULT_ID: "0xb09dadc3eb2adad636de97e6b7c9baf73e0f6965f94fa43a18e72867f930a2fa",
+        SUI_REWARD_VAULT_ID: "0xa005cc730a48dee04f7efe63aca37acd44abe813314704c797a7c6160b2aeade"
     },
     
     MODULES: {
@@ -45,14 +53,15 @@ export const CONSTANTS = {
         FARM: "farm",
         VICTORY_TOKEN: "victory_token",
         TOKEN_LOCKER: "victory_token_locker",
-        GLOBAL_EMISSION_CONTROLLER: "global_emission_controller"
+        GLOBAL_EMISSION_CONTROLLER: "global_emission_controller",
+        TEST_SUI: "test_sui"
     },
     
     CLOCK_ID: "0x6",
     getPairID: (token0: string, token1: string) => `${token0}_${token1}_pair`,
     
     // Network configuration
-    NETWORK: 'mainnet' as const,
-    RPC_URL: 'https://fullnode.mainnet.sui.io:443',
-    ADMIN: '0x980a970a8bb90b5a9c63e550c4ef06161b0376c297fb3e35a9b710004cc1aac9'
+    NETWORK: 'testnet' as const,
+    RPC_URL: 'https://fullnode.testnet.sui.io:443',
+    ADMIN: '0x9b15baa31a2d308bd09f9258f0a9db09da3d4e8e113cf1888efa919d9778fa7c'
 }
