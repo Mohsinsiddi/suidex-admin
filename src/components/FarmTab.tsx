@@ -89,7 +89,6 @@ function ChartIcon({ className = "w-4 h-4" }: { className?: string }) {
   )
 }
 
-// Loading skeleton
 function LoadingSkeleton({ className = "h-4 bg-slate-700/50 rounded animate-pulse" }: { className?: string }) {
   return <div className={className}></div>
 }
@@ -97,22 +96,18 @@ function LoadingSkeleton({ className = "h-4 bg-slate-700/50 rounded animate-puls
 type TabType = 'overview' | 'pools' | 'addresses'
 
 export default function FarmTab() {
-  // Tab state
   const [activeTab, setActiveTab] = useState<TabType>('overview')
   
-  // Core data states
   const [farmConfig, setFarmConfig] = useState<FarmConfig | null>(null)
   const [farmStats, setFarmStats] = useState<FarmStats | null>(null)
   const [allPools, setAllPools] = useState<PoolInfo[]>([])
   const [farmEvents, setFarmEvents] = useState<FarmEvent[]>([])
   
-  // Pool selection states
   const [searchToken, setSearchToken] = useState('')
   const [selectedPool, setSelectedPool] = useState<PoolInfo | null>(null)
   const [selectedPoolConfig, setSelectedPoolConfig] = useState<PoolConfig | null>(null)
   const [currentAddresses, setCurrentAddresses] = useState<FarmFeeAddresses | null>(null)
   
-  // Loading states
   const [loadingStates, setLoadingStates] = useState({
     stats: true,
     pools: true,
@@ -124,7 +119,6 @@ export default function FarmTab() {
   const [success, setSuccess] = useState<string | null>(null)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
 
-  // Form states
   const [newAddresses, setNewAddresses] = useState<FarmUpdateAddresses>({
     burn: '',
     locker: '',
@@ -143,7 +137,6 @@ export default function FarmTab() {
     [connected, authMethod, account?.address]
   )
 
-  // Memoized permission checks
   const permissions = useMemo(() => {
     if (!farmConfig || !canPerformAction || !account?.address) {
       return { canPause: false, canUpdateAddresses: false, canManagePools: false }
@@ -156,28 +149,23 @@ export default function FarmTab() {
     }
   }, [farmConfig, canPerformAction, account?.address])
 
-  // Load data
   const loadCoreData = useCallback(async () => {
     try {
       setError(null)
       
-      // Load farm config
       setLoadingStates(prev => ({ ...prev, stats: true }))
       const config = await FarmService.fetchFarmConfig()
       setFarmConfig(config)
       
-      // Load farm stats
       const stats = await FarmService.fetchFarmStats()
       setFarmStats(stats)
       setLoadingStates(prev => ({ ...prev, stats: false }))
       
-      // Load all pools
       setLoadingStates(prev => ({ ...prev, pools: true }))
       const pools = await FarmService.fetchAllPools()
       setAllPools(pools)
       setLoadingStates(prev => ({ ...prev, pools: false }))
       
-      // Load current addresses
       const addresses = await FarmService.fetchFarmFeeAddresses()
       setCurrentAddresses(addresses)
       if (addresses) {
@@ -208,20 +196,17 @@ export default function FarmTab() {
     }
   }, [])
 
-  // Initial load
   useEffect(() => {
     loadCoreData()
     const timer = setTimeout(loadEvents, 1000)
     return () => clearTimeout(timer)
   }, [loadCoreData, loadEvents])
 
-  // Manual refresh
   const handleManualRefresh = async () => {
     await loadCoreData()
     loadEvents()
   }
 
-  // Handle pool search
   const handlePoolSearch = async () => {
     if (!searchToken) {
       setError('Please enter a token address or type')
@@ -239,7 +224,6 @@ export default function FarmTab() {
     if (result.exists && result.poolInfo) {
       setSelectedPool(result.poolInfo)
       
-      // Load pool config
       const config = await FarmService.fetchPoolConfig(result.poolInfo.poolType)
       setSelectedPoolConfig(config)
       
@@ -252,7 +236,6 @@ export default function FarmTab() {
     }
   }
 
-  // Handle pool selection from list
   const handleSelectPool = async (pool: PoolInfo) => {
     setSelectedPool(pool)
     const config = await FarmService.fetchPoolConfig(pool.poolType)
@@ -261,16 +244,26 @@ export default function FarmTab() {
     setSuccess(null)
   }
 
-  // Handle transaction execution
+  const copyToClipboard = async (text: string, label: string = 'Pool type') => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setSuccess(`${label} copied to clipboard!`)
+      setTimeout(() => setSuccess(null), 2000)
+    } catch (err) {
+      console.error('Failed to copy:', err)
+      setError('Failed to copy to clipboard')
+    }
+  }
+
   const handleTransaction = async (
-    buildTx: () => any,
+    buildTx: () => any | Promise<any>,
     successMessage: string
   ) => {
     try {
       setActionLoading(true)
       setError(null)
 
-      const tx = buildTx()
+      const tx = await buildTx()
       
       const result = await signAndExecuteTransaction({
         transaction: tx,
@@ -283,10 +276,8 @@ export default function FarmTab() {
         setSuccess(successMessage)
         setConfirmAction(null)
         
-        // Reload data
         await loadCoreData()
         
-        // Reload selected pool if exists
         if (selectedPool) {
           const updatedPool = await FarmService.fetchPoolByType(selectedPool.poolType)
           if (updatedPool) setSelectedPool(updatedPool)
@@ -306,10 +297,8 @@ export default function FarmTab() {
     }
   }
 
-  // Render overview tab
   const renderOverviewTab = () => (
     <div className="space-y-6">
-      {/* Farm Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-gradient-to-br from-purple-500/10 to-purple-600/10 border border-purple-500/20 rounded-xl p-6">
           <div className="flex items-center justify-between mb-2">
@@ -321,9 +310,7 @@ export default function FarmTab() {
           ) : (
             <>
               <div className="text-2xl font-bold text-white">{farmStats?.totalPools || 0}</div>
-              <div className="text-xs text-gray-400 mt-1">
-                {farmStats?.lpPools || 0} LP • {farmStats?.singlePools || 0} Single
-              </div>
+              <div className="text-xs text-gray-400 mt-1">Farm Pools</div>
             </>
           )}
         </div>
@@ -353,7 +340,7 @@ export default function FarmTab() {
           ) : (
             <>
               <div className="text-2xl font-bold text-white">
-                ${FarmUtils.formatNumber(parseFloat(farmStats?.totalValueLocked || '0'))}
+                {FarmUtils.formatNumber(farmStats?.totalTVL || '0')}
               </div>
               <div className="text-xs text-gray-400 mt-1">Total Value Locked</div>
             </>
@@ -363,22 +350,21 @@ export default function FarmTab() {
         <div className="bg-gradient-to-br from-yellow-500/10 to-yellow-600/10 border border-yellow-500/20 rounded-xl p-6">
           <div className="flex items-center justify-between mb-2">
             <ChartIcon className="w-5 h-5 text-yellow-400" />
-            <span className="text-xs text-yellow-400 font-medium">AVG APR</span>
+            <span className="text-xs text-yellow-400 font-medium">STATUS</span>
           </div>
           {loadingStates.stats ? (
             <LoadingSkeleton className="h-8 w-20" />
           ) : (
             <>
               <div className="text-2xl font-bold text-white">
-                {FarmUtils.formatAPR(farmStats?.averageAPR || 0)}
+                {farmStats?.isPaused ? 'Paused' : 'Active'}
               </div>
-              <div className="text-xs text-gray-400 mt-1">Average APR</div>
+              <div className="text-xs text-gray-400 mt-1">Farm Status</div>
             </>
           )}
         </div>
       </div>
 
-      {/* Farm Info */}
       <div className="bg-slate-800/30 border border-slate-700/30 rounded-xl p-6">
         <h3 className="text-lg font-semibold text-white mb-4">Farm Information</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -387,119 +373,50 @@ export default function FarmTab() {
             <p className="font-mono text-white text-sm">{FarmUtils.formatAddress(CONSTANTS.FARM_ID)}</p>
           </div>
           <div>
-            <p className="text-sm text-gray-400">Status</p>
-            <div className="flex items-center space-x-2">
-              {farmStats?.farmPaused ? (
-                <>
-                  <PauseIcon className="w-4 h-4 text-yellow-400" />
-                  <span className="text-yellow-400 font-medium">Paused</span>
-                </>
-              ) : (
-                <>
-                  <PlayIcon className="w-4 h-4 text-green-400" />
-                  <span className="text-green-400 font-medium">Active</span>
-                </>
-              )}
-            </div>
-          </div>
-          <div>
-            <p className="text-sm text-gray-400">Total Victory Distributed</p>
-            <p className="text-white font-medium">
-              {FarmUtils.formatNumber(parseFloat(farmStats?.totalVictoryDistributed || '0') / 1e9)} VICTORY
-            </p>
-          </div>
-          <div>
             <p className="text-sm text-gray-400">Admin</p>
-            <p className="font-mono text-white text-sm">
-              {farmConfig?.admin ? FarmUtils.formatAddress(farmConfig.admin) : 'Loading...'}
-            </p>
+            <p className="font-mono text-white text-sm">{farmConfig ? FarmUtils.formatAddress(farmConfig.admin) : '-'}</p>
           </div>
         </div>
-      </div>
-
-      {/* Recent Events */}
-      <div className="bg-slate-800/30 border border-slate-700/30 rounded-xl p-6">
-        <h3 className="text-lg font-semibold text-white mb-4">Recent Activity</h3>
-        {loadingStates.events ? (
-          <div className="space-y-2">
-            {[1, 2, 3].map(i => (
-              <LoadingSkeleton key={i} className="h-16 w-full" />
-            ))}
-          </div>
-        ) : farmEvents.length > 0 ? (
-          <div className="space-y-2">
-            {farmEvents.map((event, index) => (
-              <div key={index} className="bg-slate-700/20 rounded-lg p-3 border border-slate-600/20">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-sm font-medium text-white">{event.type}</span>
-                  <span className="text-xs text-gray-400">
-                    {new Date(event.timestamp).toLocaleString()}
-                  </span>
-                </div>
-                <pre className="text-xs text-gray-400 font-mono overflow-x-auto">
-                  {JSON.stringify(event.data, null, 2)}
-                </pre>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-gray-400 text-center py-4">No recent events</p>
-        )}
       </div>
     </div>
   )
 
-  // Render pools tab
   const renderPoolsTab = () => (
     <div className="space-y-6">
-      {/* Pool Search */}
-      <div className="bg-slate-800/30 border border-slate-700/30 rounded-xl p-6">
-        <h3 className="text-lg font-semibold text-white mb-4">Search Pool by Token</h3>
+      <div className="bg-slate-800/30 border border-slate-700/30 rounded-xl p-4">
         <div className="flex space-x-3">
-          <div className="flex-1">
-            <input
-              type="text"
-              value={searchToken}
-              onChange={(e) => setSearchToken(e.target.value)}
-              placeholder="Enter token address or type..."
-              className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:ring-2 focus:ring-purple-500 focus:border-transparent font-mono text-sm"
-            />
-          </div>
+          <input
+            type="text"
+            value={searchToken}
+            onChange={(e) => setSearchToken(e.target.value)}
+            placeholder="Search by token address or type..."
+            className="flex-1 px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:ring-2 focus:ring-purple-500 focus:border-transparent font-mono text-sm"
+          />
           <button
             onClick={handlePoolSearch}
             disabled={loadingStates.poolSearch}
-            className="px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white rounded-lg transition-all font-medium flex items-center"
+            className="px-6 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white rounded-lg transition-colors flex items-center"
           >
             <SearchIcon className="w-4 h-4 mr-2" />
-            {loadingStates.poolSearch ? 'Searching...' : 'Search'}
+            Search
           </button>
         </div>
       </div>
 
-      {/* All Pools List */}
       <div className="bg-slate-800/30 border border-slate-700/30 rounded-xl p-6">
-        <h3 className="text-lg font-semibold text-white mb-4">All Pools</h3>
-        {loadingStates.pools ? (
-          <div className="space-y-2">
-            {[1, 2, 3, 4].map(i => (
-              <LoadingSkeleton key={i} className="h-20 w-full" />
-            ))}
-          </div>
-        ) : allPools.length > 0 ? (
-          <div className="space-y-2">
+        <h3 className="text-lg font-semibold text-white mb-4">All Pools ({allPools.length})</h3>
+        
+        {!loadingStates.pools && allPools.length > 0 ? (
+          <div className="space-y-3">
             {allPools.map((pool) => (
-              <button
+              <div 
                 key={pool.poolId}
+                className="bg-slate-700/30 hover:bg-slate-700/50 border border-slate-600/30 rounded-lg p-4 transition-colors cursor-pointer"
                 onClick={() => handleSelectPool(pool)}
-                className={`w-full text-left bg-slate-700/20 hover:bg-slate-700/40 border rounded-lg p-4 transition-all ${
-                  selectedPool?.poolId === pool.poolId 
-                    ? 'border-purple-500 ring-2 ring-purple-500/30' 
-                    : 'border-slate-600/20'
-                }`}
               >
-                <div className="flex items-center justify-between">
+                <div className="flex items-start justify-between mb-3">
                   <div className="flex-1">
-                    <div className="flex items-center space-x-2 mb-1">
+                    <div className="flex items-center space-x-2 mb-2">
                       <h4 className="font-semibold text-white">{pool.name}</h4>
                       <span className={`text-xs px-2 py-0.5 rounded ${
                         pool.isLPToken 
@@ -518,28 +435,47 @@ export default function FarmTab() {
                         </span>
                       )}
                     </div>
-                    <p className="text-xs font-mono text-gray-400">
-                      {FarmUtils.formatAddress(pool.poolType)}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-medium text-white">
-                      TVL: ${FarmUtils.formatNumber(parseFloat(pool.tvl) / 1e9)}
-                    </p>
-                    <p className="text-xs text-gray-400">
-                      APR: {FarmUtils.formatAPR(pool.apr)}
-                    </p>
+                    
+                    <div className="flex items-center space-x-2 bg-slate-800/50 rounded p-2 mb-2">
+                      <code className="text-xs text-slate-300 font-mono flex-1 overflow-hidden text-ellipsis">
+                        {pool.poolType}
+                      </code>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          copyToClipboard(pool.poolType, 'Pool type')
+                        }}
+                        className="p-1 hover:bg-slate-600 rounded transition-colors flex-shrink-0"
+                        title="Copy pool type"
+                      >
+                        <CopyIcon className="w-4 h-4 text-slate-400" />
+                      </button>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div>
+                        <span className="text-gray-400">TVL:</span>
+                        <span className="text-white ml-2">{FarmUtils.formatNumber(pool.tvl)}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400">Allocation:</span>
+                        <span className="text-white ml-2">{pool.allocationPoints}</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </button>
+              </div>
             ))}
+          </div>
+        ) : loadingStates.pools ? (
+          <div className="space-y-3">
+            {[1, 2, 3].map(i => <LoadingSkeleton key={i} className="h-24" />)}
           </div>
         ) : (
           <p className="text-gray-400 text-center py-8">No pools found</p>
         )}
       </div>
 
-      {/* Selected Pool Details */}
       {selectedPool && selectedPoolConfig && permissions.canManagePools && (
         <div className="bg-slate-800/30 border border-slate-700/30 rounded-xl p-6">
           <h3 className="text-lg font-semibold text-white mb-4">Pool Management: {selectedPool.name}</h3>
@@ -549,7 +485,7 @@ export default function FarmTab() {
               <div>
                 <p className="text-sm text-gray-400">Total Staked</p>
                 <p className="text-white font-medium">
-                  {FarmUtils.formatNumber(parseFloat(selectedPoolConfig.totalStaked) / 1e9)}
+                  {FarmUtils.formatNumber(selectedPoolConfig.totalStaked)}
                 </p>
               </div>
               <div>
@@ -567,7 +503,6 @@ export default function FarmTab() {
             </div>
           </div>
 
-          {/* Pool Control Buttons */}
           <div className="flex space-x-3">
             {selectedPoolConfig.active ? (
               <button
@@ -594,10 +529,8 @@ export default function FarmTab() {
     </div>
   )
 
-  // Render addresses tab
   const renderAddressesTab = () => (
     <div className="space-y-6">
-      {/* Current Addresses Display */}
       {currentAddresses && (
         <div className="bg-slate-800/30 border border-slate-700/30 rounded-xl p-6">
           <h3 className="text-lg font-semibold text-white mb-4">Current Fee Addresses</h3>
@@ -611,45 +544,38 @@ export default function FarmTab() {
             ].map(([label, address]) => (
               <div key={label}>
                 <p className="text-sm text-gray-400 mb-1">{label}</p>
-                <p className="font-mono text-white text-sm bg-slate-700/30 rounded px-3 py-2">
-                  {address}
-                </p>
+                <div className="flex items-center space-x-2">
+                  <p className="flex-1 font-mono text-white text-sm bg-slate-700/30 rounded px-3 py-2">
+                    {address}
+                  </p>
+                  <button
+                    onClick={() => copyToClipboard(address, label)}
+                    className="p-2 hover:bg-slate-600 rounded transition-colors"
+                    title={`Copy ${label}`}
+                  >
+                    <CopyIcon className="w-4 h-4 text-slate-400" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* Update Addresses Form */}
       {permissions.canUpdateAddresses && (
         <div className="bg-slate-800/30 border border-slate-700/30 rounded-xl p-6">
           <h3 className="text-lg font-semibold text-white mb-4">Update Fee Addresses</h3>
           
-          <button
-            onClick={() => currentAddresses && setNewAddresses({
-              burn: currentAddresses.burn,
-              locker: currentAddresses.locker,
-              team1: currentAddresses.team1,
-              team2: currentAddresses.team2,
-              dev: currentAddresses.dev
-            })}
-            className="mb-4 text-sm text-purple-400 hover:text-purple-300 flex items-center transition-colors"
-          >
-            <CopyIcon className="w-4 h-4 mr-2" />
-            📋 Copy Current Addresses
-          </button>
-
           <div className="space-y-4">
             {[
-              ['burn', 'Burn Address', 'Tokens burned from fees'],
-              ['locker', 'Locker Address', 'Locked liquidity'],
-              ['team1', 'Team1 Address', 'Team allocation'],
-              ['team2', 'Team2 Address', 'Team allocation'],
-              ['dev', 'Dev Address', 'Development fund']
-            ].map(([key, label, desc]) => (
+              ['burn', 'Burn Address'],
+              ['locker', 'Locker Address'],
+              ['team1', 'Team1 Address'],
+              ['team2', 'Team2 Address'],
+              ['dev', 'Dev Address']
+            ].map(([key, label]) => (
               <div key={key}>
                 <label className="block text-sm font-medium text-gray-300 mb-1">{label}</label>
-                <p className="text-xs text-gray-500 mb-2">{desc}</p>
                 <input
                   type="text"
                   value={newAddresses[key as keyof FarmUpdateAddresses]}
@@ -664,40 +590,61 @@ export default function FarmTab() {
           <button
             onClick={() => setConfirmAction('updateAddresses')}
             disabled={actionLoading || !FarmUtils.haveAddressesChanged(currentAddresses, newAddresses)}
-            className="w-full mt-6 px-4 py-3 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-all shadow-lg shadow-green-500/30 font-medium"
+            className="w-full mt-6 px-4 py-3 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-all font-medium"
           >
             {actionLoading ? 'Updating...' : 'Update Addresses'}
           </button>
         </div>
       )}
 
+      {permissions.canPause && farmConfig && (
+        <div className="bg-slate-800/30 border border-slate-700/30 rounded-xl p-6">
+          <h3 className="text-lg font-semibold text-white mb-4">Farm Controls</h3>
+          <div className="space-y-3">
+            {farmConfig.isPaused ? (
+              <button
+                onClick={() => setConfirmAction('unpause')}
+                disabled={actionLoading}
+                className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-medium px-4 py-3 rounded-lg transition-colors flex items-center justify-center"
+              >
+                <PlayIcon className="w-4 h-4 mr-2" />
+                Resume Farm (All Pools)
+              </button>
+            ) : (
+              <button
+                onClick={() => setConfirmAction('pause')}
+                disabled={actionLoading}
+                className="w-full bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 text-white font-medium px-4 py-3 rounded-lg transition-colors flex items-center justify-center"
+              >
+                <PauseIcon className="w-4 h-4 mr-2" />
+                Pause Farm (All Pools)
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 
   return (
-    <div className="max-w-7xl mx-auto p-6">
-      {/* Header */}
+    <div className="min-h-screen bg-slate-900 p-6">
       <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-            Farm Management
-          </h1>
-          <p className="text-gray-400 mt-1">Manage your staking pools and farm configuration</p>
-        </div>
+        <h1 className="text-3xl font-bold text-white">Farm Management</h1>
         <button
           onClick={handleManualRefresh}
-          className="px-4 py-2 bg-slate-700/50 hover:bg-slate-700 border border-slate-600/30 text-white rounded-lg transition-all flex items-center space-x-2"
+          className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors flex items-center"
         >
-          <RefreshIcon className="w-4 h-4" />
-          <span>Refresh</span>
+          <RefreshIcon className="w-4 h-4 mr-2" />
+          Refresh
         </button>
       </div>
 
-      {/* Status Messages */}
       {error && (
-        <div className="mb-4 bg-red-500/10 border border-red-500/20 rounded-lg p-4 flex items-center space-x-2">
-          <WarningIcon className="w-5 h-5 text-red-400 flex-shrink-0" />
-          <p className="text-red-400">{error}</p>
+        <div className="mb-4 bg-red-500/10 border border-red-500/20 rounded-lg p-4">
+          <div className="flex items-center">
+            <WarningIcon className="w-5 h-5 text-red-400 mr-2" />
+            <p className="text-red-400">{error}</p>
+          </div>
         </div>
       )}
 
@@ -707,7 +654,6 @@ export default function FarmTab() {
         </div>
       )}
 
-      {/* Tabs */}
       <div className="border-b border-slate-700/50 mb-6">
         <div className="flex space-x-8">
           {[
@@ -731,12 +677,10 @@ export default function FarmTab() {
         </div>
       </div>
 
-      {/* Tab Content */}
       {activeTab === 'overview' && renderOverviewTab()}
       {activeTab === 'pools' && renderPoolsTab()}
       {activeTab === 'addresses' && renderAddressesTab()}
 
-      {/* Confirmation Modal */}
       {confirmAction && (
         <ConfirmationModal
           action={confirmAction}
@@ -786,7 +730,6 @@ export default function FarmTab() {
         />
       )}
 
-      {/* Last Update Time */}
       {lastUpdate && (
         <div className="mt-6 text-center text-xs text-gray-500">
           Last updated: {lastUpdate.toLocaleTimeString()}
@@ -796,7 +739,6 @@ export default function FarmTab() {
   )
 }
 
-// Confirmation Modal Component
 function ConfirmationModal({ 
   action, 
   poolInfo,

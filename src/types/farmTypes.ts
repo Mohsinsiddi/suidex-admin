@@ -88,15 +88,11 @@ export interface TokenInfo {
 export interface FarmStats {
   totalPools: number
   activePools: number
-  pausedPools: number
-  lpPools: number
-  singlePools: number
-  totalValueLocked: string
+  totalTVL: string  // ← was totalValueLocked
   totalVictoryDistributed: string
   totalLPVictoryDistributed: string
   totalSingleVictoryDistributed: string
-  averageAPR: number
-  farmPaused: boolean
+  isPaused: boolean  // ← was farmPaused
 }
 
 // ==================== ADDRESS MANAGEMENT ====================

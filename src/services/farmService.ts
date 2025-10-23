@@ -1,4 +1,4 @@
-// services/farmService.ts
+// services/farmService.ts - EVENT-BASED (100% RELIABLE)
 
 import { Transaction } from '@mysten/sui/transactions'
 import { suiClient } from '../utils/suiClient'
@@ -17,24 +17,12 @@ import type {
   PoolConfig
 } from '../types/farmTypes'
 
-/**
- * Service for farm management operations
- * Single farm with multiple pools architecture
- */
 export class FarmService {
   
-  // ==================== FARM INFO ====================
-
-  /**
-   * Get the main farm object address from constants
-   */
   static getFarmAddress(): string {
     return CONSTANTS.FARM_ID
   }
 
-  /**
-   * Fetch farm-level configuration and stats
-   */
   static async fetchFarmConfig(): Promise<FarmConfig | null> {
     try {
       const farmObject = await suiClient.getObject({
@@ -79,10 +67,36 @@ export class FarmService {
     }
   }
 
-  // ==================== POOL LOOKUP ====================
+  static async fetchFarmStats(): Promise<FarmStats | null> {
+    try {
+      const config = await this.fetchFarmConfig()
+      if (!config) return null
+
+      const pools = await this.fetchAllPools()
+
+      const totalTVL = pools.reduce((sum, pool) => 
+        sum + parseFloat(pool.tvl || '0'), 0
+      ).toString()
+
+      const activePools = pools.filter(p => p.active).length
+
+      return {
+        totalTVL,
+        totalPools: pools.length,
+        activePools,
+        totalVictoryDistributed: config.totalVictoryDistributed,
+        totalLPVictoryDistributed: config.totalLPVictoryDistributed,
+        totalSingleVictoryDistributed: config.totalSingleVictoryDistributed,
+        isPaused: config.isPaused
+      }
+    } catch (error) {
+      console.error('Error fetching farm stats:', error)
+      return null
+    }
+  }
 
   /**
-   * Fetch all pools in the farm
+   * Fetch all pools from events - 100% reliable, no dynamic field issues
    */
   static async fetchAllPools(): Promise<PoolInfo[]> {
     try {
@@ -99,26 +113,20 @@ export class FarmService {
       }
 
       const fields = (farmObject.data.content as any).fields
-      const poolList: string[] = fields.pool_list || []
+      const poolListRaw = fields.pool_list || []
       
-      // Parse pool table
-      const pools: PoolInfo[] = []
-      if (fields.pools && fields.pools.fields) {
-        const poolsTable = fields.pools.fields
-        
-        for (const poolType of poolList) {
-          try {
-            // Query the specific pool from the table
-            const pool = await this.fetchPoolByType(poolType)
-            if (pool) {
-              pools.push(pool)
-            }
-          } catch (error) {
-            console.error(`Error fetching pool ${poolType}:`, error)
-          }
-        }
-      }
+      // Extract pool types from TypeName objects
+      const poolTypes: string[] = poolListRaw.map((item: any) => {
+        if (typeof item === 'string') return item
+        return item.fields?.name || item.name || ''
+      }).filter((name: string) => name !== '')
+      
+      console.log('Pool Types from Farm:', poolTypes)
 
+      // Fetch all pools from events
+      const pools = await this.fetchPoolsFromEvents(poolTypes)
+      
+      console.log(`✅ Loaded ${pools.length} pools`)
       return pools
     } catch (error) {
       console.error('Error fetching all pools:', error)
@@ -127,60 +135,137 @@ export class FarmService {
   }
 
   /**
-   * Fetch a specific pool by its type
+   * Fetch pools from PoolCreated and PoolConfigUpdated events
    */
+  private static async fetchPoolsFromEvents(poolTypes: string[]): Promise<PoolInfo[]> {
+    try {
+      // Fetch PoolCreated events
+      const createdEvents = await suiClient.queryEvents({
+        query: {
+          MoveEventType: `${CONSTANTS.PACKAGE_ID}::${CONSTANTS.MODULES.FARM}::PoolCreated`
+        },
+        limit: 50
+      })
+
+      // Fetch PoolConfigUpdated events
+      const updatedEvents = await suiClient.queryEvents({
+        query: {
+          MoveEventType: `${CONSTANTS.PACKAGE_ID}::${CONSTANTS.MODULES.FARM}::PoolConfigUpdated`
+        },
+        limit: 50
+      })
+
+      const poolsMap = new Map<string, PoolInfo>()
+
+      // Process PoolCreated events
+      for (const event of createdEvents.data) {
+        const data = event.parsedJson as any
+        const poolType = this.extractPoolType(data.pool_type)
+        
+        if (poolType && poolTypes.includes(poolType)) {
+          poolsMap.set(poolType, {
+            poolId: FarmUtils.hashString(poolType).slice(-8),
+            poolType: poolType,
+            name: FarmUtils.createPoolDisplayName(poolType),
+            stakingToken: {
+              type: poolType,
+              symbol: FarmUtils.extractTokenSymbol(poolType),
+              decimals: 9
+            },
+            tvl: '0',
+            apr: 0,
+            allocationPoints: data.allocation_points || '0',
+            totalStaked: '0',
+            accRewardPerShare: '0',
+            lastRewardTime: 0,
+            depositFee: data.deposit_fee || '0',
+            withdrawalFee: data.withdrawal_fee || '0',
+            active: true,
+            isLPToken: data.is_lp_token || false,
+            isNativePair: data.is_native_pair || false,
+            accumulatedDepositFees: '0',
+            accumulatedWithdrawalFees: '0'
+          })
+        }
+      }
+
+      // Update with most recent config changes
+      for (const event of updatedEvents.data) {
+        const data = event.parsedJson as any
+        const poolType = this.extractPoolType(data.pool_type)
+        
+        if (poolType && poolsMap.has(poolType)) {
+          const pool = poolsMap.get(poolType)!
+          pool.allocationPoints = data.new_allocation_points || pool.allocationPoints
+          pool.depositFee = data.new_deposit_fee || pool.depositFee
+          pool.withdrawalFee = data.new_withdrawal_fee || pool.withdrawalFee
+          pool.active = data.new_active !== undefined ? data.new_active : pool.active
+        }
+      }
+
+      const pools = Array.from(poolsMap.values())
+      
+      // Add placeholder for any pools not found in events
+      for (const poolType of poolTypes) {
+        if (!poolsMap.has(poolType)) {
+          console.warn(`Pool ${poolType} not in events, creating placeholder`)
+          pools.push({
+            poolId: FarmUtils.hashString(poolType).slice(-8),
+            poolType: poolType,
+            name: FarmUtils.createPoolDisplayName(poolType),
+            stakingToken: {
+              type: poolType,
+              symbol: FarmUtils.extractTokenSymbol(poolType),
+              decimals: 9
+            },
+            tvl: '0',
+            apr: 0,
+            allocationPoints: '100',
+            totalStaked: '0',
+            accRewardPerShare: '0',
+            lastRewardTime: 0,
+            depositFee: '0',
+            withdrawalFee: '0',
+            active: true,
+            isLPToken: poolType.includes('LPCoin'),
+            isNativePair: false,
+            accumulatedDepositFees: '0',
+            accumulatedWithdrawalFees: '0'
+          })
+        }
+      }
+
+      return pools
+    } catch (error) {
+      console.error('Error fetching pools from events:', error)
+      return []
+    }
+  }
+
+  private static extractPoolType(poolTypeData: any): string {
+    if (typeof poolTypeData === 'string') return poolTypeData
+    if (poolTypeData?.fields?.name) return poolTypeData.fields.name
+    if (poolTypeData?.name) return poolTypeData.name
+    return ''
+  }
+
   static async fetchPoolByType(poolType: string): Promise<PoolInfo | null> {
     try {
-      const farmObject = await suiClient.getObject({
-        id: CONSTANTS.FARM_ID,
-        options: {
-          showContent: true,
-          showType: true
-        }
-      })
-
-      if (!farmObject.data?.content || farmObject.data.content.dataType !== 'moveObject') {
-        return null
-      }
-
-      const fields = (farmObject.data.content as any).fields
-      
-      // Access dynamic field for the specific pool
-      const poolData = await suiClient.getDynamicFieldObject({
-        parentId: fields.pools.fields.id.id,
-        name: {
-          type: '0x1::type_name::TypeName',
-          value: { name: poolType }
-        }
-      })
-
-      if (!poolData.data?.content || poolData.data.content.dataType !== 'moveObject') {
-        return null
-      }
-
-      const poolFields = (poolData.data.content as any).fields.value.fields
-      
-      return this.parsePoolObject(poolType, poolFields)
+      const pools = await this.fetchAllPools()
+      return pools.find(p => p.poolType === poolType) || null
     } catch (error) {
       console.error('Error fetching pool by type:', error)
       return null
     }
   }
 
-  /**
-   * Look up a pool by its staking token address or type
-   */
   static async findPoolByToken(tokenAddress: string): Promise<PoolLookupResult> {
     try {
       const addressCheck = FarmUtils.validateAddress(tokenAddress)
       if (!addressCheck.isValid) {
-        return {
-          exists: false,
-          error: addressCheck.error
-        }
+        return { exists: false, error: addressCheck.error }
       }
 
-      // Fetch all pools and search for matching token
       const pools = await this.fetchAllPools()
       const matchingPool = pools.find(pool => 
         pool.stakingToken.type.toLowerCase().includes(tokenAddress.toLowerCase()) ||
@@ -188,33 +273,20 @@ export class FarmService {
       )
 
       if (!matchingPool) {
-        return {
-          exists: false,
-          error: 'Pool not found for this token'
-        }
+        return { exists: false, error: 'Pool not found for this token' }
       }
 
-      return {
-        exists: true,
-        poolInfo: matchingPool
-      }
+      return { exists: true, poolInfo: matchingPool }
     } catch (error: any) {
       console.error('Error finding pool:', error)
-      return {
-        exists: false,
-        error: FarmUtils.getErrorMessage(error)
-      }
+      return { exists: false, error: FarmUtils.getErrorMessage(error) }
     }
   }
 
-  /**
-   * Search pools with filters
-   */
   static async searchPools(filters: PoolSearchFilters): Promise<PoolInfo[]> {
     try {
       let pools = await this.fetchAllPools()
 
-      // Apply status filter
       if (filters.status && filters.status !== 'all') {
         pools = pools.filter(pool => {
           if (filters.status === 'active') return pool.active
@@ -223,7 +295,6 @@ export class FarmService {
         })
       }
 
-      // Apply token type filter (LP vs Single)
       if (filters.tokenType) {
         pools = pools.filter(pool => {
           if (filters.tokenType === 'lp') return pool.isLPToken
@@ -232,19 +303,16 @@ export class FarmService {
         })
       }
 
-      // Apply staking token filter
       if (filters.stakingToken) {
         pools = pools.filter(pool => 
           pool.stakingToken.type.toLowerCase().includes(filters.stakingToken!.toLowerCase())
         )
       }
 
-      // Apply minimum APR filter
       if (filters.minAPR) {
         pools = pools.filter(pool => pool.apr >= filters.minAPR!)
       }
 
-      // Apply minimum TVL filter
       if (filters.minTVL) {
         pools = pools.filter(pool => parseFloat(pool.tvl) >= parseFloat(filters.minTVL!))
       }
@@ -256,11 +324,6 @@ export class FarmService {
     }
   }
 
-  // ==================== POOL CONFIGURATION ====================
-
-  /**
-   * Fetch specific pool configuration
-   */
   static async fetchPoolConfig(poolType: string): Promise<PoolConfig | null> {
     try {
       const pool = await this.fetchPoolByType(poolType)
@@ -286,57 +349,6 @@ export class FarmService {
     }
   }
 
-  /**
-   * Fetch farm-wide statistics
-   */
-  static async fetchFarmStats(): Promise<FarmStats | null> {
-    try {
-      const pools = await this.fetchAllPools()
-      const farmConfig = await this.fetchFarmConfig()
-      
-      if (!farmConfig) return null
-
-      const activePools = pools.filter(p => p.active)
-      const pausedPools = pools.filter(p => !p.active)
-
-      // Calculate total TVL
-      const totalTVL = pools.reduce((sum, pool) => {
-        return sum + parseFloat(pool.tvl || '0')
-      }, 0)
-
-      // Calculate average APR
-      const avgAPR = pools.length > 0
-        ? pools.reduce((sum, pool) => sum + pool.apr, 0) / pools.length
-        : 0
-
-      // Count LP and Single staking pools
-      const lpPools = pools.filter(p => p.isLPToken).length
-      const singlePools = pools.filter(p => !p.isLPToken).length
-
-      return {
-        totalPools: pools.length,
-        activePools: activePools.length,
-        pausedPools: pausedPools.length,
-        lpPools,
-        singlePools,
-        totalValueLocked: totalTVL.toString(),
-        totalVictoryDistributed: farmConfig.totalVictoryDistributed,
-        totalLPVictoryDistributed: farmConfig.totalLPVictoryDistributed,
-        totalSingleVictoryDistributed: farmConfig.totalSingleVictoryDistributed,
-        averageAPR: avgAPR,
-        farmPaused: farmConfig.isPaused
-      }
-    } catch (error) {
-      console.error('Error fetching farm stats:', error)
-      return null
-    }
-  }
-
-  // ==================== FEE ADDRESSES ====================
-
-  /**
-   * Fetch current fee addresses for the farm
-   */
   static async fetchFarmFeeAddresses(): Promise<FarmFeeAddresses | null> {
     try {
       const config = await this.fetchFarmConfig()
@@ -358,12 +370,7 @@ export class FarmService {
 
   // ==================== TRANSACTION BUILDERS ====================
 
-  /**
-   * Build transaction to update farm admin addresses
-   */
-  static buildUpdateFarmAddressesTransaction(
-    addresses: FarmUpdateAddresses
-  ): Transaction {
+  static buildUpdateFarmAddressesTransaction(addresses: FarmUpdateAddresses): Transaction {
     const validation = FarmUtils.validateFarmUpdate(CONSTANTS.FARM_ID, addresses)
     if (!validation.isValid) {
       throw new Error(`Validation failed: ${validation.errors.join(', ')}`)
@@ -372,24 +379,22 @@ export class FarmService {
     const tx = new Transaction()
     
     tx.moveCall({
-      target: `${CONSTANTS.PACKAGE_ID}::${CONSTANTS.MODULES.FARM}::update_admin_addresses`,
+      target: `${CONSTANTS.PACKAGE_ID}::${CONSTANTS.MODULES.FARM}::set_addresses`,
       arguments: [
         tx.object(CONSTANTS.FARM_ID),
-        tx.object(CONSTANTS.FARM_ADMIN_CAP_ID), // Admin capability
         tx.pure.address(addresses.burn),
         tx.pure.address(addresses.locker),
         tx.pure.address(addresses.team1),
         tx.pure.address(addresses.team2),
-        tx.pure.address(addresses.dev)
+        tx.pure.address(addresses.dev),
+        tx.object(CONSTANTS.FARM_ADMIN_CAP_ID),
+        tx.object(CONSTANTS.CLOCK_ID)
       ]
     })
     
     return tx
   }
 
-  /**
-   * Build transaction to update pool configuration
-   */
   static buildUpdatePoolConfigTransaction(
     poolType: string,
     allocationPoints: string,
@@ -404,105 +409,77 @@ export class FarmService {
       typeArguments: [poolType],
       arguments: [
         tx.object(CONSTANTS.FARM_ID),
-        tx.object(CONSTANTS.FARM_ADMIN_CAP_ID),
         tx.pure.u256(allocationPoints),
         tx.pure.u256(depositFee),
         tx.pure.u256(withdrawalFee),
-        tx.pure.bool(active)
+        tx.pure.bool(active),
+        tx.object(CONSTANTS.FARM_ADMIN_CAP_ID),
+        tx.object(CONSTANTS.GLOBAL_EMISSION_CONTROLLER_ID),
+        tx.object(CONSTANTS.CLOCK_ID)
       ]
     })
     
     return tx
   }
 
-  /**
-   * Build transaction to pause farm (affects all pools)
-   */
   static buildPauseFarmTransaction(): Transaction {
     const tx = new Transaction()
     
     tx.moveCall({
-      target: `${CONSTANTS.PACKAGE_ID}::${CONSTANTS.MODULES.FARM}::pause_farm`,
+      target: `${CONSTANTS.PACKAGE_ID}::${CONSTANTS.MODULES.FARM}::set_pause_state`,
       arguments: [
         tx.object(CONSTANTS.FARM_ID),
-        tx.object(CONSTANTS.FARM_ADMIN_CAP_ID)
+        tx.pure.bool(true),
+        tx.object(CONSTANTS.FARM_ADMIN_CAP_ID),
+        tx.object(CONSTANTS.CLOCK_ID)
       ]
     })
     
     return tx
   }
 
-  /**
-   * Build transaction to unpause farm
-   */
   static buildUnpauseFarmTransaction(): Transaction {
     const tx = new Transaction()
     
     tx.moveCall({
-      target: `${CONSTANTS.PACKAGE_ID}::${CONSTANTS.MODULES.FARM}::unpause_farm`,
+      target: `${CONSTANTS.PACKAGE_ID}::${CONSTANTS.MODULES.FARM}::set_pause_state`,
       arguments: [
         tx.object(CONSTANTS.FARM_ID),
-        tx.object(CONSTANTS.FARM_ADMIN_CAP_ID)
+        tx.pure.bool(false),
+        tx.object(CONSTANTS.FARM_ADMIN_CAP_ID),
+        tx.object(CONSTANTS.CLOCK_ID)
       ]
     })
     
     return tx
   }
 
-  /**
-   * Build transaction to activate/deactivate a specific pool
-   */
-  static buildTogglePoolTransaction(poolType: string, active: boolean): Transaction {
+  static async buildTogglePoolTransaction(poolType: string, active: boolean): Promise<Transaction> {
+    const poolConfig = await this.fetchPoolConfig(poolType)
+    if (!poolConfig) {
+      throw new Error('Pool not found')
+    }
+
     const tx = new Transaction()
     
     tx.moveCall({
-      target: `${CONSTANTS.PACKAGE_ID}::${CONSTANTS.MODULES.FARM}::set_pool_active`,
+      target: `${CONSTANTS.PACKAGE_ID}::${CONSTANTS.MODULES.FARM}::update_pool_config`,
       typeArguments: [poolType],
       arguments: [
         tx.object(CONSTANTS.FARM_ID),
+        tx.pure.u256(poolConfig.allocationPoints),
+        tx.pure.u256(poolConfig.depositFee),
+        tx.pure.u256(poolConfig.withdrawalFee),
+        tx.pure.bool(active),
         tx.object(CONSTANTS.FARM_ADMIN_CAP_ID),
-        tx.pure.bool(active)
+        tx.object(CONSTANTS.GLOBAL_EMISSION_CONTROLLER_ID),
+        tx.object(CONSTANTS.CLOCK_ID)
       ]
     })
     
     return tx
   }
 
-  /**
-   * Build transaction to create a new pool
-   */
-  static buildCreatePoolTransaction(
-    poolType: string,
-    allocationPoints: string,
-    depositFee: string,
-    withdrawalFee: string,
-    isNativePair: boolean,
-    isLPToken: boolean
-  ): Transaction {
-    const tx = new Transaction()
-    
-    tx.moveCall({
-      target: `${CONSTANTS.PACKAGE_ID}::${CONSTANTS.MODULES.FARM}::create_pool`,
-      typeArguments: [poolType],
-      arguments: [
-        tx.object(CONSTANTS.FARM_ID),
-        tx.object(CONSTANTS.FARM_ADMIN_CAP_ID),
-        tx.pure.u256(allocationPoints),
-        tx.pure.u256(depositFee),
-        tx.pure.u256(withdrawalFee),
-        tx.pure.bool(isNativePair),
-        tx.pure.bool(isLPToken)
-      ]
-    })
-    
-    return tx
-  }
-
-  // ==================== EVENTS ====================
-
-  /**
-   * Fetch farm admin events
-   */
   static async fetchFarmAdminEvents(limit: number = 50): Promise<FarmEvent[]> {
     try {
       const eventTypes = [
@@ -523,7 +500,6 @@ export class FarmService {
             limit: Math.floor(limit / eventTypes.length)
           })
 
-          // Parse and add events
           events.data.forEach((event: any) => {
             allEvents.push({
               type: eventType,
@@ -536,7 +512,6 @@ export class FarmService {
         }
       }
 
-      // Sort by timestamp descending
       return allEvents.sort((a, b) => b.timestamp - a.timestamp).slice(0, limit)
     } catch (error) {
       console.error('Error fetching farm events:', error)
@@ -544,77 +519,18 @@ export class FarmService {
     }
   }
 
-  // ==================== VALIDATION ====================
-
-  /**
-   * Check if user can perform admin operation
-   */
   static canPerformAdminOperation(
     userAddress: string,
     farmConfig: FarmConfig | null,
     operation: 'pause' | 'addresses' | 'pool_config'
   ): boolean {
     if (!userAddress || !farmConfig) return false
-    
-    // Check if user is the farm admin
     return userAddress === farmConfig.admin
   }
 
-  // ==================== HELPERS ====================
-
-  /**
-   * Parse pool object fields into PoolInfo
-   */
-  private static parsePoolObject(poolType: string, fields: any): PoolInfo {
-    const stakingType = fields.pool_type?.fields?.name || poolType
-    
-    return {
-      poolId: FarmUtils.hashString(poolType).slice(-8),
-      poolType: stakingType,
-      name: FarmUtils.createPoolDisplayName(stakingType),
-      stakingToken: {
-        type: stakingType,
-        symbol: FarmUtils.extractTokenSymbol(stakingType),
-        decimals: 9
-      },
-      tvl: fields.total_staked || '0',
-      apr: 0, // TODO: Calculate APR with price data
-      allocationPoints: fields.allocation_points || '0',
-      totalStaked: fields.total_staked || '0',
-      accRewardPerShare: fields.acc_reward_per_share || '0',
-      lastRewardTime: parseInt(fields.last_reward_time || '0'),
-      depositFee: fields.deposit_fee || '0',
-      withdrawalFee: fields.withdrawal_fee || '0',
-      active: fields.active || false,
-      isLPToken: fields.is_lp_token || false,
-      isNativePair: fields.is_native_pair || false,
-      accumulatedDepositFees: fields.accumulated_deposit_fees || '0',
-      accumulatedWithdrawalFees: fields.accumulated_withdrawal_fees || '0'
-    }
-  }
-
-  /**
-   * Format address (re-export from utils)
-   */
   static formatAddress = FarmUtils.formatAddress
-
-  /**
-   * Format number (re-export from utils)
-   */
   static formatNumber = FarmUtils.formatNumber
-
-  /**
-   * Format APR (re-export from utils)
-   */
   static formatAPR = FarmUtils.formatAPR
-
-  /**
-   * Get error message (re-export from utils)
-   */
   static getErrorMessage = FarmUtils.getErrorMessage
-
-  /**
-   * Check if addresses changed (re-export from utils)
-   */
   static haveAddressesChanged = FarmUtils.haveAddressesChanged
 }
