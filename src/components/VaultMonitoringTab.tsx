@@ -10,6 +10,7 @@ import {
   ClockIcon,
   ActivityIcon
 } from './icons'
+import { CONSTANTS } from '../constants'
 
 // Vault-specific icons
 export const VaultCreateIcon = ({ className = "w-4 h-4" }) => (
@@ -341,7 +342,7 @@ export default function VaultMonitoringTab() {
                 onClick={async () => {
                   console.log('🔍 Fetching vault objects...')
                   const vaults = await VaultEventService.fetchVaultObjectsWithState(
-                    filters.adminAddress || '0x980a970a8bb90b5a9c63e550c4ef06161b0376c297fb3e35a9b710004cc1aac9'
+                    filters.adminAddress || CONSTANTS.ADMIN
                   )
                   console.log('📊 Vault objects:', vaults)
                   alert(`Found ${vaults.length} vault objects - check console for details`)
@@ -353,7 +354,7 @@ export default function VaultMonitoringTab() {
               <button
                 onClick={() => {
                   updateFilters({ 
-                    adminAddress: '0x980a970a8bb90b5a9c63e550c4ef06161b0376c297fb3e35a9b710004cc1aac9',
+                    adminAddress: CONSTANTS.ADMIN,
                     eventType: 'RewardVaultCreated'
                   })
                 }}
