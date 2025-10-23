@@ -317,7 +317,7 @@ export class PairService {
         type: CONSTANTS.VICTORY_TOKEN.TYPE,
         name: 'Victory Token',
         symbol: 'VICTORY',
-        decimals: 9
+        decimals: 6
         })
     }
     

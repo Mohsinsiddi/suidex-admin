@@ -9,6 +9,7 @@ import VictoryTokenControl from './VictoryTokenControl'
 import EmissionManagement from './EmissionManagement'
 import FactoryTab from './FactoryTab'
 import TokenLockerTab from './tokenlocker/TokenLockerTab'
+import FarmTab from './FarmTab'
 import { 
   OverviewIcon, 
   PoolIcon, 
@@ -58,7 +59,15 @@ function ChevronDownIcon({ className = "w-4 h-4" }: IconProps) {
   )
 }
 
-type ActiveTab = 'overview' | 'pools' | 'monitoring' | 'tokens' | 'emissions' | 'factory' | 'locker'
+function FarmIcon({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+    </svg>
+  )
+}
+
+type ActiveTab = 'overview' | 'pools' | 'monitoring' | 'tokens' | 'emissions' | 'factory' | 'locker' | 'farms'
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('overview')
@@ -128,6 +137,13 @@ export default function AdminDashboard() {
                 active={activeTab === 'locker'}
                 onClick={() => setActiveTab('locker')}
               />
+              <NavItem 
+                icon={<FarmIcon />} 
+                label="Farms" 
+                active={activeTab === 'farms'} 
+                onClick={() => setActiveTab('farms')} 
+              />
+
             </nav>
           </div>
 
@@ -254,6 +270,7 @@ export default function AdminDashboard() {
           {activeTab === 'emissions' && <EmissionsTab />}
           {activeTab === 'factory' && <FactoryTabRender />}
           {activeTab === 'locker' && <LockerTab />}
+          {activeTab === 'farms' && <FarmTabRender />}
         </div>
       </div>
     </div>
@@ -315,4 +332,8 @@ function LockerTab() {
   return (
    <TokenLockerTab />
   )
+}
+
+function FarmTabRender() {
+  return <FarmTab />
 }
