@@ -64,11 +64,11 @@ export class PairService {
         
         // Check if Option is Some (tag byte = 1) or None (tag byte = 0)
         if (bytes && bytes.length > 1 && bytes[0] === 1) {
-          // Extract address (skip first byte which is the option tag)
-          const addressBytes = bytes.slice(1, 33) // Address is 32 bytes
-          const pairAddress = '0x' + Buffer.from(addressBytes).toString('hex')
-          
-          return {
+        // Extract address (skip first byte which is the option tag)
+        const addressBytes = bytes.slice(1, 33) // Address is 32 bytes
+        const pairAddress = '0x' + Array.from(addressBytes).map(b => b.toString(16).padStart(2, '0')).join('')
+        
+        return {
             exists: true,
             pairAddress,
             token0Type: token0Type.trim(),
@@ -76,7 +76,7 @@ export class PairService {
             token0Name: TokenTypeUtils.extractTokenName(token0Type),
             token1Name: TokenTypeUtils.extractTokenName(token1Type),
             pairDisplayName: TokenTypeUtils.createPairDisplayName(token0Type, token1Type)
-          }
+        }
         }
       }
 
