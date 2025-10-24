@@ -472,11 +472,57 @@ export const buildFarmSweepTransaction = (
       tx.object(vaultId),
       tx.pure.u64(sweepAmountMist),
       tx.pure.address(recipient),
-      tx.object(CONSTANTS.ADMIN_CAP_ID),
+      tx.object(CONSTANTS.FARM_ADMIN_CAP_ID),
       tx.object(CONSTANTS.CLOCK_ID)
     ]
   })
 
+  return tx
+}
+
+export const buildLockerVictorySweepTransaction = (
+  amount: string, 
+  recipient: string, 
+  lockerVaultId?: string
+): Transaction => {
+  const tx = new Transaction()
+  const sweepAmountMist = victoryToMist(amount)
+  const vaultId = lockerVaultId || CONSTANTS.VAULT_IDS.LOCKER_REWARD_VAULT_ID
+
+  tx.moveCall({
+    target: `${CONSTANTS.PACKAGE_ID}::${CONSTANTS.MODULES.TOKEN_LOCKER}::admin_sweep_victory_reward_vault`,
+    arguments: [
+      tx.object(vaultId),
+      tx.pure.u64(sweepAmountMist),
+      tx.pure.address(recipient),
+      tx.object(CONSTANTS.GLOBAL_EMISSION_CONTROLLER_ID),
+      tx.object(CONSTANTS.TOKEN_LOCKER_ADMIN_CAP_ID),
+      tx.object(CONSTANTS.CLOCK_ID)
+    ]
+  })
+  return tx
+}
+
+export const buildLockerSUISweepTransaction = (
+  amount: string, 
+  recipient: string, 
+  suiVaultId?: string
+): Transaction => {
+  const tx = new Transaction()
+  const sweepAmountMist = (BigInt(Math.floor(parseFloat(amount) * 1e9))).toString()
+  const vaultId = suiVaultId || CONSTANTS.VAULT_IDS.SUI_REWARD_VAULT_ID
+
+  tx.moveCall({
+    target: `${CONSTANTS.PACKAGE_ID}::${CONSTANTS.MODULES.TOKEN_LOCKER}::admin_sweep_sui_reward_vault`,
+    arguments: [
+      tx.object(vaultId),
+      tx.pure.u64(sweepAmountMist),
+      tx.pure.address(recipient),
+      tx.object(CONSTANTS.GLOBAL_EMISSION_CONTROLLER_ID),
+      tx.object(CONSTANTS.TOKEN_LOCKER_ADMIN_CAP_ID),
+      tx.object(CONSTANTS.CLOCK_ID)
+    ]
+  })
   return tx
 }
 

@@ -20,7 +20,9 @@ import {
   buildMintTransaction,
   buildBurnTransaction,
   getTokenOperationErrorMessage,
-  getTransactionExplorerUrl
+  getTransactionExplorerUrl,
+  buildLockerVictorySweepTransaction,
+  buildLockerSUISweepTransaction,
 } from '../utils/tokenUtils'
 
 interface TransactionStatus {
@@ -163,7 +165,7 @@ const VictoryTokenControl: React.FC = () => {
           balance: tokenStats.suiRewardVaultBalance,
           description: 'SUI tokens for revenue sharing',
           canDeposit: false,
-          canSweep: false,
+          canSweep: true,
           icon: '💎',
           color: 'from-blue-600 to-cyan-600',
           objectId: vaultIds.suiRewardVaultId || CONSTANTS.VAULT_IDS.SUI_REWARD_VAULT_ID
@@ -409,6 +411,10 @@ const VictoryTokenControl: React.FC = () => {
       let tx: Transaction
       if (sweepModal.vault.id === 'farm_vault') {
         tx = buildFarmSweepTransaction(sweepAmount, recipientAddress, sweepModal.vault.objectId)
+      } else if (sweepModal.vault.id === 'locker_reward_vault') {
+        tx = buildLockerVictorySweepTransaction(sweepAmount, recipientAddress, sweepModal.vault.objectId)
+      } else if (sweepModal.vault.id === 'sui_reward_vault') {
+        tx = buildLockerSUISweepTransaction(sweepAmount, recipientAddress, sweepModal.vault.objectId)
       } else {
         throw new Error('Sweep function not available for this vault type')
       }
@@ -444,7 +450,7 @@ const VictoryTokenControl: React.FC = () => {
             isProcessing: false,
             isSuccess: true,
             isError: false,
-            message: `Successfully swept ${sweepAmount} VICTORY to ${recipientAddress.slice(0, 8)}...${recipientAddress.slice(-6)}`,
+            message: `Successfully swept ${sweepAmount} ${sweepModal.vault.id === 'sui_reward_vault' ? 'SUI' : 'VICTORY'} to ${recipientAddress.slice(0, 8)}...${recipientAddress.slice(-6)}`,
             txDigest: result.digest
           })
           
@@ -1041,7 +1047,7 @@ const VictoryTokenControl: React.FC = () => {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">
-                  Amount (VICTORY)
+                  Amount ({sweepModal.vault.id === 'sui_reward_vault' ? 'SUI' : 'VICTORY'})
                 </label>
                 <input
                   type="number"
@@ -1053,7 +1059,7 @@ const VictoryTokenControl: React.FC = () => {
                   className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
                 <div className="text-xs text-slate-400 mt-1">
-                  Vault Balance: {formatTokenAmount(sweepModal.vault.balance)} VICTORY
+                  Vault Balance: {formatTokenAmount(sweepModal.vault.balance)} {sweepModal.vault.id === 'sui_reward_vault' ? 'SUI' : 'VICTORY'}
                 </div>
               </div>
 
