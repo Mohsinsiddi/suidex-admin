@@ -1178,9 +1178,8 @@ export class TokenLockerService {
     // Calculate current timestamp + 60 seconds for protocol start
     const startTimestamp = Math.floor(Date.now() / 1000) + 60
     
-    // 7 days in seconds (using your test constant of 600 seconds per day)
-    const epochDurationSeconds = 7 * 600 // For testnet
-    // For production, use: const epochDurationSeconds = 7 * 86400
+    // 7 days in seconds
+    const epochDurationSeconds = 7 * 86400 
     
     tx.moveCall({
       target: `${CONSTANTS.PACKAGE_ID}::victory_token_locker::initialize_protocol_timing`,
